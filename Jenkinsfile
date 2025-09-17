@@ -1,7 +1,7 @@
 pipeline {
     agent any 
      tools {
-        git 'Git_2.43.0'
+        git 'git'
     }
     stages{
         stage("checkout scm"){
