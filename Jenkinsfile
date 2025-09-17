@@ -1,12 +1,12 @@
 pipeline {
     agent any 
      tools {
-        git 'git'
+        git 'default'
     }
     stages{
         stage("checkout scm"){
             steps{
-                checkout scm
+                git url: 'https://github.com/your-org/your-repo.git', branch: 'main'
             }
         }
         stage("test"){
