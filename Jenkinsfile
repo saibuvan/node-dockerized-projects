@@ -1,7 +1,7 @@
 pipeline {
     agent any 
      tools {
-        git 'default'
+        git 'Default'
     }
     stages{
         stage("checkout scm"){
