@@ -75,7 +75,7 @@ pipeline {
             echo "❌ Build failed. Sending failure email..."
             emailext(
                 subject: "❌ FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>❗ Build failed.</p>
+                body: """<p>❗ Build failed...</p>
                          <p>Job: ${env.JOB_NAME}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
