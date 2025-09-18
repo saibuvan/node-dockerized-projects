@@ -22,15 +22,15 @@ pipeline {
         }
         stage("Build Images"){
             steps{
-                sh 'docker build -t my-node-app:1.0 .'
+                sh 'docker build -t my-node-app:2.0 .'
             }
         }
         stage("Build push") {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker_cred', passwordVariable: 'DOCKERHUB_PASSWORD', usernameVariable: 'DOCKERHUB_USERNAME')]) {
                     sh 'docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD'
-                    sh 'docker tag my-node-app:1.0 buvan654321/my-node-app:1.0'
-                    sh 'docker push buvan654321/my-node-app:1.0'
+                    sh 'docker tag my-node-app:2.0 buvan654321/my-node-app:2.0'
+                    sh 'docker push buvan654321/my-node-app:2.0'
                     sh 'docker logout'
                 }
              }
