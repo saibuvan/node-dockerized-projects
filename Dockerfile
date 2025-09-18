@@ -1,5 +1,15 @@
-From node:latest
+# Example Dockerfile
+
+FROM node:latest
+
 WORKDIR /apps
-ADD . .
-Run npm install
-CMD ["node" , "index.js"]
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+
