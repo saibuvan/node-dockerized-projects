@@ -15,15 +15,14 @@ pipeline {
 
         stage("Test") {
             steps {
-                echo "🧪 Installing and running unit tests..."
                 sh 'npm ci'
                 sh 'npm test'
 
-                echo "📂 Listing workspace files..."
-                sh 'find . -type f'
+                echo "Checking test-results directory and report file:"
+                sh 'ls -la test-results || echo "test-results folder missing"'
+                sh 'cat test-results/results.xml || echo "test report missing"'
 
-                echo "📄 Publishing test results..."
-                junit 'test-results/results.xml'
+                junit '**/test-results/results.xml'
             }
         }
 
