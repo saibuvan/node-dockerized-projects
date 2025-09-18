@@ -8,44 +8,34 @@ pipeline {
     stages {
         stage("Checkout SCM") {
             steps {
-                // Clone the main branch of your repository
                 git url: 'https://github.com/your-org/your-repo.git', branch: 'main'
             }
         }
 
         stage("Test") {
             steps {
-                sh 'npm ci'
+                sh 'npm install'
                 sh 'npm test'
-
-                echo "Checking test-results directory and report file:"
-                sh 'ls -la test-results || echo "test-results folder missing"'
-                sh 'cat test-results/results.xml || echo "test report missing"'
-
-                junit '**/test-results/results.xml'
             }
         }
 
         stage("Build") {
             steps {
-                echo "⚙️ Building the application..."
                 sh 'npm run build'
             }
         }
 
         stage("Build Docker Image") {
             steps {
-                echo "🐳 Building Docker image..."
                 sh 'docker build -t my-node-app:1.0 .'
             }
         }
 
         stage("Push Docker Image") {
             steps {
-                echo "📤 Pushing Docker image to Docker Hub..."
                 withCredentials([usernamePassword(
-                    credentialsId: 'docker_cred',
-                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    credentialsId: 'docker_cred', 
+                    usernameVariable: 'DOCKERHUB_USERNAME', 
                     passwordVariable: 'DOCKERHUB_PASSWORD'
                 )]) {
                     sh 'docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD'
@@ -59,9 +49,8 @@ pipeline {
 
     post {
         success {
-            echo "✅ Build was successful. Sending success email..."
             emailext(
-                subject: "✅ SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+                subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
                 body: """<p>✅ Build was successful!</p>
                          <p>Job: ${env.JOB_NAME}</p>
                          <p>Build Number: ${env.BUILD_NUMBER}</p>
@@ -70,12 +59,10 @@ pipeline {
                 mimeType: 'text/html'
             )
         }
-
         failure {
-            echo "❌ Build failed. Sending failure email..."
             emailext(
                 subject: "❌ FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>❗ Build failed...</p>
+                body: """<p>❗ Build failed.</p>
                          <p>Job: ${env.JOB_NAME}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
