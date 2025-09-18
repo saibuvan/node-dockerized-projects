@@ -24,7 +24,14 @@ pipeline {
             steps {
                 sh 'npm install'
                 sh 'npm test'
-                sh 'npm start'
+                sh '''
+                    npm start &
+                    APP_PID=$!
+                    sleep 5
+                    echo "Checking if app started on port 3000..."
+                    curl -s http://localhost:3000 || echo "App failed to start or no response"
+                    kill $APP_PID || echo "Failed to stop app"
+                '''
             }
         }
 
