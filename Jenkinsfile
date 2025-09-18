@@ -23,7 +23,7 @@ pipeline {
 
                 // Optional: Publish test results (requires test results in JUnit format)
                 // Uncomment the line below if you're using jest-junit or similar
-                junit 'test-results/results.xml'
+                junit '**/test-results/results.xml'
             }
         }
 
@@ -63,7 +63,7 @@ pipeline {
             echo "✅ Build was successful. Sending success email..."
             emailext(
                 subject: "✅ SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>✅ Build was successful!!!</p>
+                body: """<p>✅ Build was successful!!</p>
                          <p>Job: ${env.JOB_NAME}</p>
                          <p>Build Number: ${env.BUILD_NUMBER}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
