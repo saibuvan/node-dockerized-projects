@@ -15,15 +15,17 @@ pipeline {
 
         stage("Test") {
             steps {
-                echo "📦 Installing dependencies..."
-                sh 'npm ci' // Recommended for clean, CI installs
+                echo "🧪 Installing dependencies and running tests..."
+                sh 'npm ci'
+                sh 'npx jest --ci --reporters=default --reporters=jest-junit'
 
-                echo "🧪 Running unit tests..."
-                sh 'npm test'
+                echo "📂 Checking files in workspace:"
+                sh 'echo "--- FILES FOUND ---"; find . -type f'
 
-                // Optional: Publish test results (requires test results in JUnit format)
-                // Uncomment the line below if you're using jest-junit or similar
-                junit '**/test-results/results.xml'
+                echo "📄 Trying to read test-results file:"
+                sh 'cat test-results/results.xml || echo "❌ Not found."'
+
+                junit 'test-results/results.xml'
             }
         }
 
