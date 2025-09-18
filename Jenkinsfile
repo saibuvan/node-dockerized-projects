@@ -60,7 +60,7 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo "🚀 Deploying ${DOCKERHUB_REPO}:${NEW_TAG}..."
+                        echo "Deploying ${DOCKERHUB_REPO}:${NEW_TAG}..."
 
                         sh """
                             docker stop ${CONTAINER_NAME} || true
@@ -74,13 +74,13 @@ pipeline {
                         // Verify container is running
                         def running = sh(script: "docker ps | grep ${CONTAINER_NAME}", returnStatus: true)
                         if (running != 0) {
-                            error "❌ New image failed to start!"
+                            error "New image failed to start!"
                         }
 
-                        echo "✅ New image deployed successfully."
+                        echo "New image deployed successfully."
 
                     } catch (Exception e) {
-                        echo "⚠️ Deployment failed. Rolling back to ${OLD_TAG}..."
+                        echo "Deployment failed. Rolling back to ${OLD_TAG}..."
 
                         sh """
                             docker stop ${CONTAINER_NAME} || true
@@ -90,7 +90,7 @@ pipeline {
                             docker run -d --name ${CONTAINER_NAME} -p 80:3000 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
-                        echo "✅ Rolled back to previous version: ${OLD_TAG}"
+                        echo "Rolled back to previous version: ${OLD_TAG}"
                     }
                 }
             }
