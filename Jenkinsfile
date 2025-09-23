@@ -7,8 +7,8 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        NEW_TAG = '2.0'
-        OLD_TAG = '1.0'
+        NEW_TAG = '3.0'
+        OLD_TAG = '2.0'
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
     }
@@ -24,14 +24,7 @@ pipeline {
             steps {
                 sh 'npm install'
                 sh 'npm test'
-                sh '''
-                    npm run serve &
-                    APP_PID=$!
-                    sleep 5
-                    echo "Checking if app started on port 3000..."
-                    curl -s http://localhost:3000 || echo "App failed to start or no response"
-                    kill $APP_PID || echo "Failed to stop app"
-                '''
+                sh 'npm run serve'
             }
         }
 
@@ -69,11 +62,10 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3000 ${DOCKERHUB_REPO}:${NEW_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
                             sleep 10
                         """
 
-                        // Verify container is running
                         def running = sh(script: "docker ps | grep ${CONTAINER_NAME}", returnStatus: true)
                         if (running != 0) {
                             error "New image failed to start!"
@@ -89,11 +81,26 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 80:3000 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
                         echo "Rolled back to previous version: ${OLD_TAG}"
                     }
+                }
+            }
+        }
+
+        stage("Remove Old Docker Image") {
+            when {
+                expression {
+                    return currentBuild.result == null || currentBuild.result == 'SUCCESS'
+                }
+            }
+            steps {
+                script {
+                    echo "Removing old Docker image: ${APP_NAME}:${OLD_TAG}"
+                    sh "docker rmi ${APP_NAME}:${OLD_TAG} || true"
+                    sh "docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true"
                 }
             }
         }
@@ -123,3 +130,4 @@ pipeline {
         }
     }
 }
+
