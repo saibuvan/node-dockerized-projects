@@ -4,7 +4,7 @@ const port = 3001;
 
 // Basic route
 app.get('/', (req, res) => {
-  res.send('jenkins server app!!!');
+  res.send('jenkins server apps!!!');
 });
 
 // Start server
