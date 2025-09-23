@@ -7,8 +7,8 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        NEW_TAG = '1.0'
-        OLD_TAG = '2.0'
+        NEW_TAG = '2.0'
+        OLD_TAG = '1.0'
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
     }
@@ -62,11 +62,10 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3000 ${DOCKERHUB_REPO}:${NEW_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
                             sleep 10
                         """
 
-                        // Verify container is running
                         def running = sh(script: "docker ps | grep ${CONTAINER_NAME}", returnStatus: true)
                         if (running != 0) {
                             error "New image failed to start!"
@@ -82,7 +81,7 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 80:3000 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
                         echo "Rolled back to previous version: ${OLD_TAG}"
@@ -90,7 +89,7 @@ pipeline {
                 }
             }
         }
-    }
+
         stage("Remove Old Docker Image") {
             when {
                 expression {
@@ -105,12 +104,13 @@ pipeline {
                 }
             }
         }
+    }
 
     post {
         success {
             emailext(
                 subject: "✅ SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>✅ Build was successful!!</p>
+                body: """<p>✅ Build was successful!!!</p>
                          <p>Job: ${env.JOB_NAME}</p>
                          <p>Build Number: ${env.BUILD_NUMBER}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
