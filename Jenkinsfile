@@ -104,7 +104,6 @@ pipeline {
                     sh "docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true"
                 }
             }
-        }
 
     post {
         success {
