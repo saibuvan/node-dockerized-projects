@@ -24,8 +24,20 @@ pipeline {
             steps {
                 sh 'npm install'
                 sh 'npm test'
-                sh 'npm run serve'
+                sh '''
+                    npm start &
+                    APP_PID=$!
+                    sleep 5
+                    echo "Checking if app started on port 3000..."
+                    curl -s http://localhost:3000 || echo "App failed to start or no response"
+                    kill $APP_PID || echo "Failed to stop app"
+                '''
+            }
+        }
 
+        stage("Build") {
+            steps {
+                sh 'npm run build'
             }
         }
 
@@ -63,7 +75,7 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 87:3000 ${DOCKERHUB_REPO}:${NEW_TAG}
                             sleep 10
                         """
 
@@ -83,7 +95,7 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 80:3000 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
                         echo "Rolled back to previous version: ${OLD_TAG}"
@@ -97,7 +109,7 @@ pipeline {
         success {
             emailext(
                 subject: "✅ SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>✅ Build was successful!!!</p>
+                body: """<p>✅ Build was successful!!</p>
                          <p>Job: ${env.JOB_NAME}</p>
                          <p>Build Number: ${env.BUILD_NUMBER}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
