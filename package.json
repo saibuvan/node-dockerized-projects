@@ -4,8 +4,12 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
+    "test": "jest"
   },
   "dependencies": {
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "jest": "^30.1.3"
   }
 }
