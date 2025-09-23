@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/app.js",
+    "start": "node app.js",
     "test": "echo \"No tests defined\" && exit 0"
   },
   "dependencies": {
