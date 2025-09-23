@@ -91,7 +91,7 @@ pipeline {
             }
         }
     }
-    stage("Remove Old Docker Image") {
+        stage("Remove Old Docker Image") {
             when {
                 expression {
                     return currentBuild.result == null || currentBuild.result == 'SUCCESS'
