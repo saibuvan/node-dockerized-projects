@@ -7,8 +7,8 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        NEW_TAG = '2.0'
-        OLD_TAG = '1.0'
+        NEW_TAG = '1.0'
+        OLD_TAG = '2.0'
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
     }
@@ -27,7 +27,7 @@ pipeline {
                 sh 'npm run serve'
             }
         }
-        
+
         stage("Build Docker Image") {
             steps {
                 sh "docker build -t ${APP_NAME}:${NEW_TAG} ."
@@ -91,6 +91,20 @@ pipeline {
             }
         }
     }
+    stage("Remove Old Docker Image") {
+            when {
+                expression {
+                    return currentBuild.result == null || currentBuild.result == 'SUCCESS'
+                }
+            }
+            steps {
+                script {
+                    echo "Removing old Docker image: ${APP_NAME}:${OLD_TAG}"
+                    sh "docker rmi ${APP_NAME}:${OLD_TAG} || true"
+                    sh "docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true"
+                }
+            }
+        }
 
     post {
         success {
