@@ -69,7 +69,7 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3000 ${DOCKERHUB_REPO}:${NEW_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
                             sleep 10
                         """
 
@@ -89,7 +89,7 @@ pipeline {
                             docker rm ${CONTAINER_NAME} || true
 
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 80:3000 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
                         echo "Rolled back to previous version: ${OLD_TAG}"
