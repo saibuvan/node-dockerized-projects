@@ -27,13 +27,7 @@ pipeline {
                 sh 'npm run serve'
             }
         }
-
-        stage("Build") {
-            steps {
-                sh 'npm run build'
-            }
-        }
-
+        
         stage("Build Docker Image") {
             steps {
                 sh "docker build -t ${APP_NAME}:${NEW_TAG} ."
