@@ -25,7 +25,7 @@ pipeline {
                 sh 'npm install'
                 sh 'npm test'
                 sh '''
-                    npm start &
+                    npm run serve &
                     APP_PID=$!
                     sleep 5
                     echo "Checking if app started on port 3000..."
