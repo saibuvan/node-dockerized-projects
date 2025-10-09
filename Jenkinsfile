@@ -34,7 +34,7 @@ pipeline {
             }
         }
 
-        stage("Install & Test") {
+        stage("Test") {
             steps {
                 sh 'npm install'
                 sh 'npm test'
