@@ -29,7 +29,7 @@ pipeline {
             steps {
                 sh 'npm install'
                 sh 'npm test'
-                sh 'npm run build'
+                sh 'npm run serve'
             }
         }
 
