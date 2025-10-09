@@ -12,7 +12,7 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        OLD_TAG = 'previous'
+        OLD_TAG = '1.0.0'
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
     }
@@ -89,7 +89,7 @@ pipeline {
                             docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
-                        echo "✅ Rolled back to previous version: ${OLD_TAG}"
+                        echo "✅ Rolled back to 1.0.0 version: ${OLD_TAG}"
                     }
                 }
             }
