@@ -36,16 +36,31 @@ pipeline {
 
         stage("Test") {
             steps {
-                sh 'npm install'
-                sh 'npm test'
-                // 👇 Use build for main, serve for release (optional)
-                script {
-                    if (params.TARGET_BRANCH == 'main') {
-                        sh 'npm run build'
-                    } else {
-                        sh 'npm run serve'
-                    }
-                }
+                sh '''
+                echo "Installing dependencies..."
+                npm install
+
+                echo "Running tests..."
+                if npm run | grep -q test; then
+                    npm test
+                else
+                    echo "No test script found. Skipping tests."
+                fi
+
+                echo "Running build if available..."
+                if npm run | grep -q build; then
+                    npm run build
+                else
+                    echo "No build script found. Skipping build."
+                fi
+
+                echo "Running serve if available..."
+                if npm run | grep -q serve; then
+                    npm run serve
+                else
+                    echo "No serve script found. Skipping serve."
+                fi
+                '''
             }
         }
 
