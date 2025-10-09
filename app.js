@@ -4,7 +4,11 @@ const port = 3001;
 
 // Basic route
 app.get('/', (req, res) => {
+<<<<<<< HEAD
   res.send('Node.js Buvanesh service js guys');
+=======
+  res.send('jenkins server apps service!');
+>>>>>>> a739e61fbbc1827be16338363a070d65533adcb9
 });
 
 // Start server

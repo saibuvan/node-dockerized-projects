@@ -7,8 +7,8 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        NEW_TAG = '2.0'
-        OLD_TAG = '1.0'
+        NEW_TAG = '3.0'
+        OLD_TAG = '2.0'
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
     }
@@ -130,3 +130,4 @@ pipeline {
         }
     }
 }
+
