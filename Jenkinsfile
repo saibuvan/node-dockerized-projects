@@ -12,7 +12,7 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        OLD_TAG = 'previous'  // Can be overridden if needed
+        OLD_TAG = '1.0'  // Can be overridden if needed
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
     }
