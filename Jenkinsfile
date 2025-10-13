@@ -5,48 +5,96 @@ pipeline {
         git 'Default'
     }
 
+    parameters {
+        choice(
+            name: 'TARGET_BRANCH',
+            choices: ['develop', 'main', 'release/1.0.0', 'release/2.0.0'],
+            description: 'Select the branch to build and deploy (main or a release branch)'
+        )
+        string(
+            name: 'NEW_TAG',
+            defaultValue: '1.0.0',
+            description: 'Docker image tag for the build (e.g., 1.0.0)'
+        )
+    }
+
     environment {
         APP_NAME = 'my-node-app'
+<<<<<<< HEAD
         NEW_TAG = '3.0'
         OLD_TAG = '2.0'
+=======
+        OLD_TAG = '1.0.0'  // fallback tag for rollback
+>>>>>>> origin/release/1.0.0
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
+        GIT_REPO_URL = 'https://github.com/saibuvan/node-dockerized-projects.git'
     }
 
     stages {
-        stage("Checkout SCM") {
+        stage("Checkout Target Branch") {
             steps {
-                git url: 'https://github.com/your-org/your-repo.git', branch: 'main'
+                echo "📥 Checking out branch: ${params.TARGET_BRANCH}"
+                git url: "${env.GIT_REPO_URL}", branch: "${params.TARGET_BRANCH}"
             }
         }
 
         stage("Test") {
             steps {
+<<<<<<< HEAD
                 sh 'npm install'
                 sh 'npm test'
                 sh 'npm run serve'
+=======
+                sh '''
+                echo "Installing dependencies..."
+                npm install
+
+                echo "Running tests..."
+                if npm run | grep -q test; then
+                    npm test
+                else
+                    echo "No test script found. Skipping tests."
+                fi
+
+                echo "Running build if available..."
+                if npm run | grep -q build; then
+                    npm run build
+                else
+                    echo "No build script found. Skipping build."
+                fi
+
+                echo "Running serve if available..."
+                if npm run | grep -q serve; then
+                    npm run serve
+                else
+                    echo "No serve script found. Skipping serve."
+                fi
+                '''
+>>>>>>> origin/release/1.0.0
             }
         }
 
         stage("Build Docker Image") {
             steps {
-                sh "docker build -t ${APP_NAME}:${NEW_TAG} ."
+                echo "🐳 Building Docker image: ${APP_NAME}:${params.NEW_TAG}"
+                sh "docker build -t ${APP_NAME}:${params.NEW_TAG} ."
             }
         }
 
         stage("Push Docker Image") {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'docker_cred', 
-                    usernameVariable: 'DOCKERHUB_USERNAME', 
+                    credentialsId: 'docker_cred',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
                     passwordVariable: 'DOCKERHUB_PASSWORD'
                 )]) {
-                    sh '''
+                    sh """
                         docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
-                        docker tag ${APP_NAME}:${NEW_TAG} ${DOCKERHUB_REPO}:${NEW_TAG}
-                        docker push ${DOCKERHUB_REPO}:${NEW_TAG}
+                        docker tag ${APP_NAME}:${params.NEW_TAG} ${DOCKERHUB_REPO}:${params.NEW_TAG}
+                        docker push ${DOCKERHUB_REPO}:${params.NEW_TAG}
                         docker logout
-                    '''
+                    """
                 }
             }
         }
@@ -55,26 +103,32 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo "Deploying ${DOCKERHUB_REPO}:${NEW_TAG}..."
+                        echo "🚀 Deploying ${DOCKERHUB_REPO}:${params.NEW_TAG} from branch ${params.TARGET_BRANCH}..."
 
+                        // Deploy new container
                         sh """
                             docker stop ${CONTAINER_NAME} || true
                             docker rm ${CONTAINER_NAME} || true
 
+<<<<<<< HEAD
                             docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
                             docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
+=======
+                            docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}
+                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}
+>>>>>>> origin/release/1.0.0
                             sleep 10
                         """
 
                         def running = sh(script: "docker ps | grep ${CONTAINER_NAME}", returnStatus: true)
                         if (running != 0) {
-                            error "New image failed to start!"
+                            error "❌ New container failed to start!"
                         }
 
-                        echo "New image deployed successfully."
+                        echo "✅ New image deployed successfully."
 
                     } catch (Exception e) {
-                        echo "Deployment failed. Rolling back to ${OLD_TAG}..."
+                        echo "🔄 Deployment failed. Rolling back to ${OLD_TAG}..."
 
                         sh """
                             docker stop ${CONTAINER_NAME} || true
@@ -84,7 +138,7 @@ pipeline {
                             docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
-                        echo "Rolled back to previous version: ${OLD_TAG}"
+                        echo "✅ Rolled back to ${OLD_TAG} successfully."
                     }
                 }
             }
@@ -109,10 +163,9 @@ pipeline {
     post {
         success {
             emailext(
-                subject: "✅ SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>✅ Build was successful!!!</p>
-                         <p>Job: ${env.JOB_NAME}</p>
-                         <p>Build Number: ${env.BUILD_NUMBER}</p>
+                subject: "✅ SUCCESS: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+                body: """<p>✅ Successfully deployed branch <b>${params.TARGET_BRANCH}</b></p>
+                         <p>Tag: ${params.NEW_TAG}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
                 mimeType: 'text/html'
@@ -120,9 +173,8 @@ pipeline {
         }
         failure {
             emailext(
-                subject: "❌ FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: """<p>❗ Build failed or rollback was triggered.</p>
-                         <p>Job: ${env.JOB_NAME}</p>
+                subject: "❌ FAILURE: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+                body: """<p>❌ Deployment failed for branch <b>${params.TARGET_BRANCH}</b></p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
                 mimeType: 'text/html'
