@@ -96,7 +96,7 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo "🚀 Deploying ${DOCKERHUB_REPO}:${params.NEW_TAG} from branch ${params.TARGET_BRANCH}..."
+                        echo "Deploying ${DOCKERHUB_REPO}:${params.NEW_TAG} from branch ${params.TARGET_BRANCH}..."
 
                         // Deploy new container
                         sh """
