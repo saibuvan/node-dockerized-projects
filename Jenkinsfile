@@ -37,9 +37,6 @@ pipeline {
 
         stage("Test") {
             steps {
-                sh 'npm install'
-                sh 'npm test'
-                sh 'npm run serve'
                 sh '''
                 echo "Installing dependencies..."
                 npm install
@@ -57,6 +54,9 @@ pipeline {
                 else
                     echo "No build script found. Skipping build."
                 fi
+
+                echo "Cleaning up PM2..."
+                pm2 delete app.js || true
 
                 echo "Running serve if available..."
                 if npm run | grep -q serve; then
