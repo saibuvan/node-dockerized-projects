@@ -37,7 +37,6 @@ pipeline {
 
         stage("Test") {
             steps {
-<<<<<<< HEAD
                 sh 'npm install'
                 sh 'npm test'
                 sh 'npm run serve'
@@ -67,7 +66,6 @@ pipeline {
                     echo "No serve script found. Skipping serve."
                 fi
                 '''
->>>>>>> origin/release/1.0.0
             }
         }
 
@@ -105,14 +103,10 @@ pipeline {
                         sh """
                             docker stop ${CONTAINER_NAME} || true
                             docker rm ${CONTAINER_NAME} || true
-
-<<<<<<< HEAD
                             docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
                             docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
-=======
                             docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}
                             docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}
->>>>>>> origin/release/1.0.0
                             sleep 10
                         """
 
