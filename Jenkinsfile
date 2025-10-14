@@ -20,7 +20,7 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        NEW_TAG = '3.0'
+        NEW_TAG = '1.1.0'
         OLD_TAG = '1.0.0'  // fallback tag for rollback
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
