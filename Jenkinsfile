@@ -40,7 +40,6 @@ pipeline {
                 sh 'npm install'
                 sh 'npm test'
                 sh 'npm run serve'
-=======
                 sh '''
                 echo "Installing dependencies..."
                 npm install
