@@ -9,7 +9,7 @@ pipeline {
         choice(
             name: 'TARGET_BRANCH',
             choices: ['release/1.0.0', 'release/2.0.0'],
-            description: 'Select the branch to build and deploy (main or a release branch)'
+            description: 'Select the branch to build and deploy'
         )
         string(
             name: 'NEW_TAG',
@@ -20,8 +20,7 @@ pipeline {
 
     environment {
         APP_NAME = 'my-node-app'
-        NEW_TAG = '1.1.0'
-        OLD_TAG = '1.0.0'  // fallback tag for rollback
+        OLD_TAG = '1.0.0' // fallback tag for rollback
         DOCKERHUB_REPO = 'buvan654321/my-node-app'
         CONTAINER_NAME = 'my-node-app-container'
         GIT_REPO_URL = 'https://github.com/saibuvan/node-dockerized-projects.git'
@@ -53,16 +52,6 @@ pipeline {
                     npm run build
                 else
                     echo "No build script found. Skipping build."
-                fi
-
-                echo "Cleaning up PM2..."
-                pm2 delete app.js || true
-
-                echo "Running serve if available..."
-                if npm run | grep -q serve; then
-                    npm run serve
-                else
-                    echo "No serve script found. Skipping serve."
                 fi
                 '''
             }
@@ -96,14 +85,11 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo "Deploying ${DOCKERHUB_REPO}:${params.NEW_TAG} from branch ${params.TARGET_BRANCH}..."
+                        echo "🚀 Deploying ${DOCKERHUB_REPO}:${params.NEW_TAG} from branch ${params.TARGET_BRANCH}..."
 
-                        // Deploy new container
                         sh """
                             docker stop ${CONTAINER_NAME} || true
                             docker rm ${CONTAINER_NAME} || true
-                            docker pull ${DOCKERHUB_REPO}:${NEW_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${NEW_TAG}
                             docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}
                             docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}
                             sleep 10
@@ -122,12 +108,13 @@ pipeline {
                         sh """
                             docker stop ${CONTAINER_NAME} || true
                             docker rm ${CONTAINER_NAME} || true
-
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
                             docker run -d --name ${CONTAINER_NAME} -p 80:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
 
                         echo "✅ Rolled back to ${OLD_TAG} successfully."
+                        currentBuild.result = 'FAILURE'   // 👈 CRUCIAL for failure notification
+                        throw e
                     }
                 }
             }
@@ -141,7 +128,7 @@ pipeline {
             }
             steps {
                 script {
-                    echo "Removing old Docker image: ${APP_NAME}:${OLD_TAG}"
+                    echo "🧹 Removing old Docker image: ${APP_NAME}:${OLD_TAG}"
                     sh "docker rmi ${APP_NAME}:${OLD_TAG} || true"
                     sh "docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true"
                 }
@@ -164,6 +151,7 @@ pipeline {
             emailext(
                 subject: "❌ FAILURE: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
                 body: """<p>❌ Deployment failed for branch <b>${params.TARGET_BRANCH}</b></p>
+                         <p>Tag: ${params.NEW_TAG}</p>
                          <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
                 mimeType: 'text/html'
@@ -171,4 +159,3 @@ pipeline {
         }
     }
 }
-
