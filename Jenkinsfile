@@ -7,6 +7,11 @@ pipeline {
 
     parameters {
         choice(
+            name: 'DEPLOY_ENV',
+            choices: ['staging', 'production'],
+            description: 'Select the environment to deploy'
+        )
+        choice(
             name: 'TARGET_BRANCH',
             choices: ['dev', 'release/1.0.0', 'main'],
             description: 'Select the branch to build and deploy'
@@ -20,16 +25,17 @@ pipeline {
 
     environment {
         APP_NAME        = 'my-node-app'
-        OLD_TAG         = '0.9.0'     // rollback tag
+        OLD_TAG         = '0.9.0'                        // fallback tag for rollback
         DOCKERHUB_REPO  = 'buvan654321/my-node-app'
         CONTAINER_NAME  = 'my-node-app-container'
         GIT_REPO_URL    = 'https://github.com/saibuvan/node-dockerized-projects.git'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo "📥 Checking out ${params.TARGET_BRANCH}"
+                echo "📥 Checking out branch: ${params.TARGET_BRANCH}"
                 git branch: "${params.TARGET_BRANCH}", url: "${env.GIT_REPO_URL}"
             }
         }
@@ -37,17 +43,17 @@ pipeline {
         stage('Install & Test') {
             steps {
                 sh '''
-                echo "Installing dependencies..."
+                echo "📦 Installing dependencies..."
                 npm install
 
-                echo "Running tests..."
+                echo "🧪 Running tests..."
                 if npm run | grep -q test; then
                     npm test
                 else
                     echo "No tests found, skipping."
                 fi
 
-                echo "Building if build script exists..."
+                echo "🏗️ Building if build script exists..."
                 if npm run | grep -q build; then
                     npm run build
                 else
@@ -72,9 +78,15 @@ pipeline {
                     passwordVariable: 'DOCKERHUB_PASSWORD'
                 )]) {
                     sh """
+                        echo "🔐 Logging in to DockerHub..."
                         docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
+
+                        echo "🏷️ Tagging image..."
                         docker tag ${APP_NAME}:${params.NEW_TAG} ${DOCKERHUB_REPO}:${params.NEW_TAG}
+
+                        echo "📤 Pushing image to DockerHub..."
                         docker push ${DOCKERHUB_REPO}:${params.NEW_TAG}
+
                         docker logout
                     """
                 }
@@ -84,43 +96,52 @@ pipeline {
         stage('Deploy with Rollback') {
             steps {
                 script {
+                    def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
+                    def port = (params.DEPLOY_ENV == 'staging') ? 8081 : 80
+
                     try {
-                        echo "🚀 Deploying ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+                        echo "🚀 Pulling Docker image for deployment..."
+                        sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+
+                        echo "📦 Stopping old container if exists..."
                         sh """
-                            docker stop ${CONTAINER_NAME} || true
-                            docker rm ${CONTAINER_NAME} || true
-                            docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}
-                            sleep 10
+                            docker stop ${containerName} || true
+                            docker rm ${containerName} || true
                         """
 
-                        def status = sh(script: "docker ps | grep ${CONTAINER_NAME}", returnStatus: true)
+                        echo "🏃 Running new container on ${params.DEPLOY_ENV} (port ${port})..."
+                        sh "docker run -d --name ${containerName} -p ${port}:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+
+                        // Verify container is running
+                        def status = sh(script: "docker ps | grep ${containerName}", returnStatus: true)
                         if (status != 0) {
                             error "Container failed to start"
                         }
 
-                        echo "✅ Deployment successful."
+                        echo "✅ Deployment to ${params.DEPLOY_ENV} successful!"
 
                     } catch (err) {
-                        echo "❌ Deployment failed. Rolling back to ${OLD_TAG}"
+                        echo "❌ Deployment failed. Rolling back to ${OLD_TAG}..."
+
                         sh """
-                            docker stop ${CONTAINER_NAME} || true
-                            docker rm ${CONTAINER_NAME} || true
+                            docker stop ${containerName} || true
+                            docker rm ${containerName} || true
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${CONTAINER_NAME} -p 87:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${containerName} -p ${port}:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
-                        error "Rollback completed."
+                        echo "♻️ Rollback completed to ${OLD_TAG}."
+                        error "Rollback executed!"
                     }
                 }
             }
         }
 
-        stage('Cleanup Old Image') {
+        stage('Cleanup Old Docker Image') {
             when {
                 expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
             }
             steps {
-                echo "🧹 Cleaning old images..."
+                echo "🧹 Cleaning old Docker images..."
                 sh """
                     docker rmi ${APP_NAME}:${OLD_TAG} || true
                     docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true
@@ -133,8 +154,9 @@ pipeline {
         success {
             emailext(
                 subject: "✅ SUCCESS: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
-                body: """<p>✅ Successfully deployed <b>${params.TARGET_BRANCH}</b></p>
-                         <p>Tag: ${params.NEW_TAG}</p>
+                body: """<p>✅ Successfully deployed branch <b>${params.TARGET_BRANCH}</b></p>
+                         <p>Tag: <b>${params.NEW_TAG}</b></p>
+                         <p>Environment: <b>${params.DEPLOY_ENV}</b></p>
                          <p><a href="${env.BUILD_URL}">View Build</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
                 mimeType: 'text/html'
@@ -143,7 +165,9 @@ pipeline {
         failure {
             emailext(
                 subject: "❌ FAILURE: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
-                body: """<p>❌ Deployment failed for <b>${params.TARGET_BRANCH}</b></p>
+                body: """<p>❌ Deployment failed for branch <b>${params.TARGET_BRANCH}</b></p>
+                         <p>Tag: <b>${params.NEW_TAG}</b></p>
+                         <p>Environment: <b>${params.DEPLOY_ENV}</b></p>
                          <p><a href="${env.BUILD_URL}">View Build</a></p>""",
                 to: 'buvaneshganesan1@gmail.com',
                 mimeType: 'text/html'
