@@ -13,7 +13,7 @@ pipeline {
         )
         choice(
             name: 'TARGET_BRANCH',
-            choices: ['dev', 'release/1.0.0', 'main'],
+            choices: ['develop', 'release/1.0.0', 'main'],
             description: 'Select the branch to build and deploy'
         )
         string(
