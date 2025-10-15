@@ -1,12 +1,20 @@
 const express = require('express');
 const app = express();
-const port = 3001;
+const port = 8082;
 
 app.get('/', (req, res) => {
+<<<<<<< HEAD
   res.send('Node.js Buvanesh service is running!');
 });
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
+=======
+  res.send('Hello, Express server is running!');
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+>>>>>>> 67779b766743211aa5bb632851425e712c63efe0
 });
 
