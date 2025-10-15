@@ -110,7 +110,7 @@ pipeline {
                         """
 
                         echo "🏃 Running new container on ${params.DEPLOY_ENV} (port ${port})..."
-                        sh "docker run -d --name ${containerName} -p ${port}:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+                        sh "docker run -d --name ${containerName} -p ${port}:8081 ${DOCKERHUB_REPO}:${params.NEW_TAG}"
 
                         // Verify container is running
                         def status = sh(script: "docker ps | grep ${containerName}", returnStatus: true)
@@ -127,7 +127,7 @@ pipeline {
                             docker stop ${containerName} || true
                             docker rm ${containerName} || true
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${containerName} -p ${port}:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${containerName} -p ${port}:8081 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
                         echo "♻️ Rollback completed to ${OLD_TAG}."
                         error "Rollback executed!"
