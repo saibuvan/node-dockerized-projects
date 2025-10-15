@@ -1,10 +1,14 @@
 pipeline {
     agent any
 
+    tools {
+        git 'Default'
+    }
+
     parameters {
         choice(
             name: 'DEPLOY_ENV',
-            choices: ['staging', 'production'],
+            choices: ['staging', 'productiom'],
             description: 'Select the environment to deploy'
         )
         choice(
@@ -21,7 +25,7 @@ pipeline {
 
     environment {
         APP_NAME        = 'my-node-app'
-        OLD_TAG         = '0.9.0'
+        OLD_TAG         = '0.9.0'                        // fallback tag for rollback
         DOCKERHUB_REPO  = 'buvan654321/my-node-app'
         CONTAINER_NAME  = 'my-node-app-container'
         GIT_REPO_URL    = 'https://github.com/saibuvan/node-dockerized-projects.git'
@@ -32,9 +36,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "📥 Checking out branch: ${params.TARGET_BRANCH}"
-                deleteDir()  // 🔥 Clean workspace
-                git branch: "${params.TARGET_BRANCH}",
-                    url: "${env.GIT_REPO_URL}"
+                git branch: "${params.TARGET_BRANCH}", url: "${env.GIT_REPO_URL}"
             }
         }
 
@@ -61,7 +63,91 @@ pipeline {
             }
         }
 
-        // 👇 Docker Build / Push / Deploy stages remain same as your version
+        stage('Build Docker Image') {
+            steps {
+                echo "🐳 Building Docker image: ${APP_NAME}:${params.NEW_TAG}"
+                sh "docker build -t ${APP_NAME}:${params.NEW_TAG} ."
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker_cred',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    passwordVariable: 'DOCKERHUB_PASSWORD'
+                )]) {
+                    sh """
+                        echo "🔐 Logging in to DockerHub..."
+                        docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
+
+                        echo "🏷️ Tagging image..."
+                        docker tag ${APP_NAME}:${params.NEW_TAG} ${DOCKERHUB_REPO}:${params.NEW_TAG}
+
+                        echo "📤 Pushing image to DockerHub..."
+                        docker push ${DOCKERHUB_REPO}:${params.NEW_TAG}
+
+                        docker logout
+                    """
+                }
+            }
+        }
+
+        stage('Deploy with Rollback') {
+            steps {
+                script {
+                    def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
+                    def port = (params.DEPLOY_ENV == 'staging') ? 8081 : 80
+
+                    try {
+                        echo "🚀 Pulling Docker image for deployment..."
+                        sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+
+                        echo "📦 Stopping old container if exists..."
+                        sh """
+                            docker stop ${containerName} || true
+                            docker rm ${containerName} || true
+                        """
+
+                        echo "🏃 Running new container on ${params.DEPLOY_ENV} (port ${port})..."
+                        sh "docker run -d --name ${containerName} -p ${port}:3001 ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+
+                        // Verify container is running
+                        def status = sh(script: "docker ps | grep ${containerName}", returnStatus: true)
+                        if (status != 0) {
+                            error "Container failed to start"
+                        }
+
+                        echo "✅ Deployment to ${params.DEPLOY_ENV} successful!"
+
+                    } catch (err) {
+                        echo "❌ Deployment failed. Rolling back to ${OLD_TAG}..."
+
+                        sh """
+                            docker stop ${containerName} || true
+                            docker rm ${containerName} || true
+                            docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${containerName} -p ${port}:3001 ${DOCKERHUB_REPO}:${OLD_TAG}
+                        """
+                        echo "♻️ Rollback completed to ${OLD_TAG}."
+                        error "Rollback executed!"
+                    }
+                }
+            }
+        }
+
+        stage('Cleanup Old Docker Image') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                echo "🧹 Cleaning old Docker images..."
+                sh """
+                    docker rmi ${APP_NAME}:${OLD_TAG} || true
+                    docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true
+                """
+            }
+        }
     }
 
     post {
