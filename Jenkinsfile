@@ -106,7 +106,7 @@ pipeline {
 
                         echo "🏃 Running new container temporarily..."
                         sh """
-                            docker run -d --name ${tempContainer} -p ${port}:80830d94684923d6 ${DOCKERHUB_REPO}:${params.NEW_TAG}
+                            docker run -d --name ${tempContainer} -p ${port}:3002 ${DOCKERHUB_REPO}:${params.NEW_TAG}
                         """
 
                         def status = sh(script: "docker ps | grep ${tempContainer}", returnStatus: true)
