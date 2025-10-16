@@ -98,7 +98,7 @@ pipeline {
                 script {
                     def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
                     def tempContainer = "${containerName}-new"
-                    def port = (params.DEPLOY_ENV == 'staging') ? 8082 : 80
+                    def port = (params.DEPLOY_ENV == 'staging') ? 3002 : 80
 
                     try {
                         echo "🚀 Pulling Docker image for deployment..."
@@ -136,7 +136,7 @@ pipeline {
 
                         sh """
                             docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                            docker run -d --name ${containerName} -p ${port}:8082 ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d --name ${containerName} -p ${port}:3002 ${DOCKERHUB_REPO}:${OLD_TAG}
                         """
                         echo "♻️ Rollback completed to ${OLD_TAG}."
                         error "Rollback executed!"
