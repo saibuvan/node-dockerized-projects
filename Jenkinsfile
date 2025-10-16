@@ -8,7 +8,7 @@ pipeline {
     parameters {
         choice(
             name: 'DEPLOY_ENV',
-            choices: ['staging', 'productiom'],
+            choices: ['staging', 'production'],
             description: 'Select the environment to deploy'
         )
         choice(
@@ -25,7 +25,7 @@ pipeline {
 
     environment {
         APP_NAME        = 'my-node-app'
-        OLD_TAG         = '0.9.0'                        
+        OLD_TAG         = '0.9.0'
         DOCKERHUB_REPO  = 'buvan654321/my-node-app'
         CONTAINER_NAME  = 'my-node-app-container'
         GIT_REPO_URL    = 'https://github.com/saibuvan/node-dockerized-projects.git'
@@ -94,92 +94,65 @@ pipeline {
         }
 
         stage('Deploy with Rollback') {
-           steps {
-             script {
-            // Determine container names and ports based on environment
-            def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
-            def tempContainer = "${containerName}-new"
-            
-            // Avoid port conflicts: staging uses 8085, prod uses 8082
-            def port = (params.DEPLOY_ENV == 'staging') ? 8085 : 8082
+            steps {
+                script {
+                    def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
+                    def tempContainer = "${containerName}-new"
+                    def hostPort = (params.DEPLOY_ENV == 'staging') ? 8085 : 8082
+                    def containerPort = 3002
 
-    steps {
-        script {
-            // Determine container names and host ports based on environment
-            def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
-            def tempContainer = "${containerName}-new"
-            
-            // Host ports: staging uses 8085, prod uses 8082
-            def hostPort = (params.DEPLOY_ENV == 'staging') ? 8085 : 8082
-            def containerPort = 3002  // Node.js app inside container listens on 3002
+                    try {
+                        echo "🚀 Pulling Docker image for deployment..."
+                        sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
 
-            try {
-                echo "🚀 Pulling Docker image for deployment..."
-                sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
+                        echo "🧼 Cleaning up old temp container if exists..."
+                        sh "docker rm -f ${tempContainer} || true"
 
-                echo "🏃 Running new container temporarily..."
-                // Clean any old temp container first
-                sh "docker rm -f ${tempContainer} || true"
+                        echo "🏃 Running new container temporarily..."
+                        sh """
+                            docker run -d \
+                                --name ${tempContainer} \
+                                -p ${hostPort}:${containerPort} \
+                                -e PORT=${containerPort} \
+                                ${DOCKERHUB_REPO}:${params.NEW_TAG}
+                        """
 
-                sh """
-                    docker run -d --name ${tempContainer} -p ${port}:8082 ${DOCKERHUB_REPO}:${params.NEW_TAG}
+                        def status = sh(script: "docker ps | grep ${tempContainer}", returnStatus: true)
+                        if (status != 0) {
+                            error "❌ New container failed to start"
+                        }
 
-                // Remove old temp container if exists
-                sh "docker rm -f ${tempContainer} || true"
+                        echo "📦 Stopping old container if exists..."
+                        sh """
+                            if [ \$(docker ps -q -f name=${containerName}) ]; then
+                                docker stop ${containerName}
+                                docker rm ${containerName}
+                            fi
+                        """
 
-                sh """
-                    docker run -d \
-                        --name ${tempContainer} \
-                        -p ${hostPort}:${containerPort} \
-                        -e PORT=${containerPort} \
-                        ${DOCKERHUB_REPO}:${params.NEW_TAG}
-                """
+                        echo "🔄 Renaming new container to main name..."
+                        sh "docker rename ${tempContainer} ${containerName}"
 
-                // Verify the container started
-                def status = sh(script: "docker ps | grep ${tempContainer}", returnStatus: true)
-                if (status != 0) {
-                    error "❌ New container failed to starts"
+                        echo "✅ Deployment to ${params.DEPLOY_ENV} successful!"
+
+                    } catch (err) {
+                        echo "❌ Deployment failed. Rolling back..."
+                        sh "docker rm -f ${tempContainer} || true"
+
+                        sh """
+                            docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
+                            docker run -d \
+                                --name ${containerName} \
+                                -p ${hostPort}:${containerPort} \
+                                -e PORT=${containerPort} \
+                                ${DOCKERHUB_REPO}:${OLD_TAG}
+                        """
+                        echo "♻️ Rollback completed to ${OLD_TAG}."
+                        error "Rollback executed!"
+                    }
                 }
-
-                echo "✅ New container started successfully!"
-                // Stop old container if exists
-                // Stop old container if it exists
-                echo "📦 Stopping old container if exists..."
-                sh """
-                    if [ \$(docker ps -q -f name=${containerName}) ]; then
-                        docker stop ${containerName}
-                        docker rm ${containerName}
-                    fi
-                """
-
-                // Rename new container to main container name
-                echo "🔄 Renaming new container to main name..."
-                sh "docker rename ${tempContainer} ${containerName}"
-
-                echo "✅ Deployment to ${params.DEPLOY_ENV} successful!"
-
-            } catch (err) {
-                echo "❌ Deployment failed. Rolling back..."
-
-                // Remove failed temp container
-                sh "docker rm -f ${tempContainer} || true"
-
-                // Rollback old version
-                sh """
-                    docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
-                    docker run -d --name ${containerName} -p ${port}:8082 ${DOCKERHUB_REPO}:${OLD_TAG}
-                    docker run -d \
-                        --name ${containerName} \
-                        -p ${hostPort}:${containerPort} \
-                        -e PORT=${containerPort} \
-                        ${DOCKERHUB_REPO}:${OLD_TAG}
-                """
-                echo "♻️ Rollback completed to ${OLD_TAG}."
-                error "Rollback executed!"
             }
         }
-    }
-}
 
         stage('Cleanup Old Docker Image') {
             when {
