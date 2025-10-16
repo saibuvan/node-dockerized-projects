@@ -103,6 +103,16 @@ pipeline {
             // Avoid port conflicts: staging uses 8085, prod uses 8082
             def port = (params.DEPLOY_ENV == 'staging') ? 8085 : 8082
 
+    steps {
+        script {
+            // Determine container names and host ports based on environment
+            def containerName = (params.DEPLOY_ENV == 'staging') ? "${CONTAINER_NAME}-staging" : "${CONTAINER_NAME}-prod"
+            def tempContainer = "${containerName}-new"
+            
+            // Host ports: staging uses 8085, prod uses 8082
+            def hostPort = (params.DEPLOY_ENV == 'staging') ? 8085 : 8082
+            def containerPort = 3002  // Node.js app inside container listens on 3002
+
             try {
                 echo "🚀 Pulling Docker image for deployment..."
                 sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
@@ -113,17 +123,27 @@ pipeline {
 
                 sh """
                     docker run -d --name ${tempContainer} -p ${port}:8082 ${DOCKERHUB_REPO}:${params.NEW_TAG}
+
+                // Remove old temp container if exists
+                sh "docker rm -f ${tempContainer} || true"
+
+                sh """
+                    docker run -d \
+                        --name ${tempContainer} \
+                        -p ${hostPort}:${containerPort} \
+                        -e PORT=${containerPort} \
+                        ${DOCKERHUB_REPO}:${params.NEW_TAG}
                 """
 
                 // Verify the container started
                 def status = sh(script: "docker ps | grep ${tempContainer}", returnStatus: true)
                 if (status != 0) {
-                    error "❌ New container failed to start"
+                    error "❌ New container failed to starts"
                 }
 
                 echo "✅ New container started successfully!"
-
                 // Stop old container if exists
+                // Stop old container if it exists
                 echo "📦 Stopping old container if exists..."
                 sh """
                     if [ \$(docker ps -q -f name=${containerName}) ]; then
@@ -148,6 +168,11 @@ pipeline {
                 sh """
                     docker pull ${DOCKERHUB_REPO}:${OLD_TAG}
                     docker run -d --name ${containerName} -p ${port}:8082 ${DOCKERHUB_REPO}:${OLD_TAG}
+                    docker run -d \
+                        --name ${containerName} \
+                        -p ${hostPort}:${containerPort} \
+                        -e PORT=${containerPort} \
+                        ${DOCKERHUB_REPO}:${OLD_TAG}
                 """
                 echo "♻️ Rollback completed to ${OLD_TAG}."
                 error "Rollback executed!"
