@@ -15,6 +15,8 @@ pipeline {
             name: 'TARGET_BRANCH',
             choices: ['develop', 'release/1.0.0', 'main'],
             description: 'Select the branch to build and deploy'
+            choices: ['develop', 'main', 'release/1.0.0', 'release/2.0.0'],
+            description: 'Select the branch to build and deploy (main or a release branch)'
         )
         string(
             name: 'NEW_TAG',
