@@ -18,14 +18,14 @@ pipeline {
         )
         string(
             name: 'NEW_TAG',
-            defaultValue: '1.0.0',
-            description: 'Docker image tag (e.g. 1.0.0)'
+            defaultValue: '1.0.3',
+            description: 'Docker image tag (e.g. 1.0.3)'
         )
     }
 
     environment {
         APP_NAME        = 'my-node-app'
-        OLD_TAG         = '0.9.0'
+        OLD_TAG         = '1.0.1'
         DOCKERHUB_REPO  = 'buvan654321/my-node-app'
         CONTAINER_NAME  = 'my-node-app-container'
         GIT_REPO_URL    = 'https://github.com/saibuvan/node-dockerized-projects.git'
@@ -40,35 +40,38 @@ pipeline {
             }
         }
 
-        stage('Install & Test') {
-         steps {
-        sh '''
-        echo "📦 Installing dependencies..."
-        npm install
+        stage('Install & Serve') {
+            steps {
+                sh '''
+                echo "📦 Installing dependencies..."
+                npm install
 
-        echo "🧪 Running tests..."
-        if npm run | grep -q test; then
-            npm test
-        else
-            echo "No tests found, skipping."
-        fi
+                echo "🧪 Running tests..."
+                if npm run | grep -q test; then
+                    npm test
+                else
+                    echo "No tests found, skipping."
+                fi
 
-        echo "🌐 Starting npm serve if serve script exists..."
-        if npm run | grep -q serve; then
-            nohup npm run serve > serve.log 2>&1 &
-            echo "✅ npm serve started in background (check serve.log for logs)"
-        else
-            echo "❌ No serve script found in package.json"
-            exit 1
-        fi
-        '''
-    }
-}
+                echo "🧹 Killing any old npm serve processes..."
+                pkill -f "npm run serve" || true
+
+                echo "🌐 Starting npm serve if serve script exists..."
+                if npm run | grep -q serve; then
+                    nohup npm run serve > serve.log 2>&1 &
+                    echo "✅ npm serve started in background (check serve.log for logs)"
+                else
+                    echo "❌ No serve script found in package.json"
+                    exit 1
+                fi
+                '''
+            }
+        }
 
         stage('Build Docker Image') {
             steps {
                 echo "🐳 Building Docker image: ${APP_NAME}:${params.NEW_TAG}"
-                sh "docker build -t ${APP_NAME}:${params.NEW_TAG} ."
+                sh "docker build --pull -t ${APP_NAME}:${params.NEW_TAG} ."
             }
         }
 
@@ -104,16 +107,20 @@ pipeline {
                     def containerPort = 3002
 
                     try {
+                        echo "🧹 Removing any existing local image for this NEW_TAG..."
+                        sh "docker rmi -f ${DOCKERHUB_REPO}:${params.NEW_TAG} || true"
+
                         echo "🚀 Pulling Docker image for deployment..."
                         sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
 
                         echo "🧼 Stopping & removing old container if exists..."
                         sh """
                             if [ \$(docker ps -q -f name=${containerName}) ]; then
-                                docker stop ${containerName}
-                                docker rm ${containerName}
-                            elif [ \$(docker ps -a -q -f name=${containerName}) ]; then
-                                docker rm ${containerName}
+                                docker stop ${containerName} || true
+                                docker rm -f ${containerName} || true
+                            fi
+                            if [ \$(docker ps -a -q -f name=${containerName}) ]; then
+                                docker rm -f ${containerName} || true
                             fi
                         """
 
@@ -165,8 +172,8 @@ pipeline {
             steps {
                 echo "🧹 Cleaning old Docker images..."
                 sh """
-                    docker rmi ${APP_NAME}:${OLD_TAG} || true
-                    docker rmi ${DOCKERHUB_REPO}:${OLD_TAG} || true
+                    docker rmi -f ${APP_NAME}:${OLD_TAG} || true
+                    docker rmi -f ${DOCKERHUB_REPO}:${OLD_TAG} || true
                 """
             }
         }
