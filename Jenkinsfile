@@ -40,33 +40,30 @@ pipeline {
             }
         }
 
-        stage('Install & Serve') {
-            steps {
-                sh '''
-                echo "📦 Installing dependencies..."
-                npm install
+        stage('Install & Serve with PM2') {
+         steps {
+        sh '''
+        echo "📦 Installing dependencies..."
+        npm install
 
-                echo "🧪 Running tests..."
-                if npm run | grep -q test; then
-                    npm test
-                else
-                    echo "No tests found, skipping."
-                fi
+        echo "🧪 Running tests..."
+        if npm run | grep -q test; then
+            npm test
+        else
+            echo "No tests found, skipping."
+        fi
 
-                echo "🧹 Killing any old npm serve processes..."
-                pkill -f "npm run serve" || true
+        echo "🧹 Stopping old PM2 process if exists..."
+        pm2 delete my-node-app || true
 
-                echo "🌐 Starting npm serve if serve script exists..."
-                if npm run | grep -q serve; then
-                    nohup npm run serve > serve.log 2>&1 &
-                    echo "✅ npm serve started in background (check serve.log for logs)"
-                else
-                    echo "❌ No serve script found in package.json"
-                    exit 1
-                fi
-                '''
-            }
-        }
+        echo "🌐 Starting app with PM2..."
+        pm2 start app.js --name my-node-app
+
+        echo "✅ PM2 process started"
+        pm2 list
+        '''
+    }
+}
 
         stage('Build Docker Image') {
             steps {
