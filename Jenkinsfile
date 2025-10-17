@@ -105,10 +105,20 @@ pipeline {
                         echo "🚀 Pulling Docker image for deployment..."
                         sh "docker pull ${DOCKERHUB_REPO}:${params.NEW_TAG}"
 
-                        echo "🧼 Cleaning up old temp container if exists..."
+                        echo "🧼 Stopping & removing old container if exists..."
+                        sh """
+                            if [ \$(docker ps -q -f name=${containerName}) ]; then
+                                docker stop ${containerName}
+                                docker rm ${containerName}
+                            elif [ \$(docker ps -a -q -f name=${containerName}) ]; then
+                                docker rm ${containerName}
+                            fi
+                        """
+
+                        echo "🧼 Cleaning up temp container if exists..."
                         sh "docker rm -f ${tempContainer} || true"
 
-                        echo "🏃 Running new container temporarily..."
+                        echo "🏃 Starting new container..."
                         sh """
                             docker run -d \
                                 --name ${tempContainer} \
@@ -122,15 +132,7 @@ pipeline {
                             error "❌ New container failed to start"
                         }
 
-                        echo "📦 Stopping old container if exists..."
-                        sh """
-                            if [ \$(docker ps -q -f name=${containerName}) ]; then
-                                docker stop ${containerName}
-                                docker rm ${containerName}
-                            fi
-                        """
-
-                        echo "🔄 Renaming new container to main name..."
+                        echo "🔄 Renaming new container to ${containerName}..."
                         sh "docker rename ${tempContainer} ${containerName}"
 
                         echo "✅ Deployment to ${params.DEPLOY_ENV} successful!"
