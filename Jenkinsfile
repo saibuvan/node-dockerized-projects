@@ -41,27 +41,29 @@ pipeline {
         }
 
         stage('Install & Test') {
-            steps {
-                sh '''
-                echo "📦 Installing dependencies..."
-                npm install
+         steps {
+        sh '''
+        echo "📦 Installing dependencies..."
+        npm install
 
-                echo "🧪 Running tests..."
-                if npm run | grep -q test; then
-                    npm test
-                else
-                    echo "No tests found, skipping."
-                fi
+        echo "🧪 Running tests..."
+        if npm run | grep -q test; then
+            npm test
+        else
+            echo "No tests found, skipping."
+        fi
 
-                echo "🏗️ Building if build script exists..."
-                if npm run | grep -q build; then
-                    npm run build
-                else
-                    echo "No build script found."
-                fi
-                '''
-            }
-        }
+        echo "🌐 Starting npm serve if serve script exists..."
+        if npm run | grep -q serve; then
+            nohup npm run serve > serve.log 2>&1 &
+            echo "✅ npm serve started in background (check serve.log for logs)"
+        else
+            echo "❌ No serve script found in package.json"
+            exit 1
+        fi
+        '''
+    }
+}
 
         stage('Build Docker Image') {
             steps {
