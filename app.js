@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const port = 3002;
+const port = 3001;
 
 app.get('/', (req, res) => {
   res.send('Node.js service is running my application!!!');
