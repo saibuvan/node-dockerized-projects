@@ -40,30 +40,21 @@ pipeline {
             }
         }
 
-        stage('Install & Serve with PM2') {
-         steps {
-        sh '''
-        echo "📦 Installing dependencies..."
-        npm install
+        stage('Install & Test') {
+            steps {
+                sh '''
+                echo "📦 Installing dependencies..."
+                npm install
 
-        echo "🧪 Running tests..."
-        if npm run | grep -q test; then
-            npm test
-        else
-            echo "No tests found, skipping."
-        fi
-
-        echo "🧹 Stopping old PM2 process if exists..."
-        pm2 delete my-node-app || true
-
-        echo "🌐 Starting app with PM2..."
-        pm2 start app.js --name my-node-app
-
-        echo "✅ PM2 process started"
-        pm2 list
-        '''
-    }
-}
+                echo "🧪 Running tests..."
+                if npm run | grep -q test; then
+                    npm test
+                else
+                    echo "No tests found, skipping."
+                fi
+                '''
+            }
+        }
 
         stage('Build Docker Image') {
             steps {
