@@ -26,7 +26,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 echo 'Building Docker image...'
-                sh 'docker build -t my-node-app:1.0 .'
+                sh 'docker build -t my-node-app:9.0 .'
             }
         }
 
@@ -40,7 +40,7 @@ pipeline {
                 )]) {
                     sh '''
                         echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-                        docker tag my-node-app:1.0 buvan654321/my-node-app:1.0
+                        docker tag my-node-app:9.0 buvan654321/my-node-app:9.0
                         docker push buvan654321/my-node-app:1.0
                         docker logout
                     '''
@@ -57,7 +57,7 @@ pipeline {
                     docker rm my-node-app-container || true
 
                     # Run the new container
-                    docker run -d -p 8089:3005 --name my-node-app-container buvan654321/my-node-app:1.0
+                    docker run -d -p 8089:3007 --name my-node-app-container buvan654321/my-node-app:1.0
 
                     echo "✅ Container started successfully!"
                 '''
