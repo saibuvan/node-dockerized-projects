@@ -57,7 +57,7 @@ pipeline {
                     docker rm my-node-app-container || true
 
                     # Run the new container
-                    docker run -d -p 8089:3007 --name my-node-app-container buvan654321/my-node-app:1.0
+                    docker run -d -p 8089:3009 --name my-node-app-container buvan654321/my-node-app:1.0
 
                     echo "✅ Container started successfully!"
                 '''
