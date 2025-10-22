@@ -8,13 +8,13 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install production dependencies
-RUN npm install --production
+RUN npm install --staging
 
 # Copy the rest of the app
 COPY . .
 
 # Expose the app port
-EXPOSE 3002
+EXPOSE 3005
 
 # Start app without PM2
 CMD ["node", "app.js"]
