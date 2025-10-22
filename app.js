@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 
 // Use env PORT if provided, fallback to 3005
-const port = process.env.PORT || 3009;
+const port =  3000;
 
 app.get('/', (req, res) => {
   res.send('Hello Redington!');
