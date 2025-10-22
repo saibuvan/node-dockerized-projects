@@ -1,17 +1,15 @@
 const express = require('express');
 const app = express();
-const port = 3002;
+
+// Use env PORT if provided, fallback to 3005
+const port =  3000;
 
 app.get('/', (req, res) => {
-  res.send('hello redington!');
+  res.send('Hello Redington!');
 });
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
-  res.send('Hello, Express server is running!');
 });
 
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-});
 
