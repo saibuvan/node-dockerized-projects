@@ -14,7 +14,7 @@ RUN npm install --staging
 COPY . .
 
 # Expose the app port
-EXPOSE 3005
+EXPOSE 3009
 
 # Start app without PM2
 CMD ["node", "app.js"]
