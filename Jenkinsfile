@@ -73,7 +73,7 @@ pipeline {
             }
         }
 
-        stage('Notifys') {
+        stage('Notify') {
             steps {
                 mail to: 'buvaneshganesan1@gmail.com',
                      subject: "Jenkins Notification: ${currentBuild.currentResult}",
