@@ -65,12 +65,33 @@ pipeline {
         }
     }
 
-    post {
+        post {
         success {
-            echo '✅ Build completed successfully and Docker image pushed!'
+            emailext (
+                subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                <p>Build <b>${env.JOB_NAME} #${env.BUILD_NUMBER}</b> was successful.</p>
+                <p><a href="${env.BUILD_URL}">View build details</a></p>
+                """,
+                to: 'buvaneshganesan1@gmail.com',
+                mimeType: 'text/html'
+            )
         }
         failure {
-            echo '❌ Build failed!'
+            emailext (
+                subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                <p><b>Build failed!</b></p>
+                <p>Job: ${env.JOB_NAME}<br>
+                Build Number: ${env.BUILD_NUMBER}<br>
+                <a href="${env.BUILD_URL}">View Console Output</a></p>
+                """,
+                to: 'buvaneshganesan1@gmail.com',
+                mimeType: 'text/html'
+            )
+        }
+        always {
+            echo "Email notification sent."
         }
     }
 }
