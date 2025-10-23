@@ -11,7 +11,7 @@ pipeline {
         DOCKER_REPO = "buvan654321/my-node-app"
         GIT_BRANCH = "staging"
         GIT_URL = "https://github.com/saibuvan/node-dockerized-projects.git"
-        GIT_CREDENTIALS = "sai-repo" // Replace with your Jenkins Git credentials ID
+        GIT_CREDENTIALS = "devops" // Replace with your Jenkins Git credentials ID
     }
 
     options {
