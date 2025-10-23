@@ -2,7 +2,8 @@ pipeline {
     agent any
 
     triggers {
-        pollSCM('H/1 * * * *') // Poll every 1 minute
+        // Poll SCM every 1 minute (H distributes load)
+        pollSCM('H/1 * * * *')
     }
 
     environment {
@@ -10,6 +11,7 @@ pipeline {
         DOCKER_REPO = "buvan654321/my-node-app"
         GIT_BRANCH = "staging"
         GIT_URL = "https://github.com/saibuvan/node-dockerized-projects.git"
+        GIT_CREDENTIALS = "sai-repo" // Replace with your Jenkins Git credentials ID
     }
 
     options {
@@ -19,7 +21,10 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: "${GIT_BRANCH}", url: "${GIT_URL}"
+                // Use credentials for polling private repos
+                git branch: "${GIT_BRANCH}",
+                    url: "${GIT_URL}",
+                    credentialsId: "${GIT_CREDENTIALS}"
             }
         }
 
