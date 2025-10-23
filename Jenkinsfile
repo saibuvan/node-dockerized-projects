@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     triggers {
-        pollSCM('H/1 * * * *') // Poll every 1 minute for new commits
+        pollSCM('H/1 * * * *') // Poll every 1 minute
     }
 
     environment {
@@ -13,42 +13,36 @@ pipeline {
     }
 
     options {
-        // Ensure post always runs even if a stage fails
-        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
+        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') // Ensure post always runs
     }
 
     stages {
         stage('Checkout') {
             steps {
-                echo "Checking out branch: ${GIT_BRANCH}"
                 git branch: "${GIT_BRANCH}", url: "${GIT_URL}"
             }
         }
 
         stage('Install Dependencies') {
             steps {
-                echo 'Installing npm dependencies...'
                 sh 'npm install'
             }
         }
 
         stage('Run Tests') {
             steps {
-                echo 'Running tests...'
                 sh 'npm test || echo "Tests failed but continuing..."'
             }
         }
 
         stage('Docker Build') {
             steps {
-                echo 'Building Docker image...'
                 sh "docker build -t my-node-app:${IMAGE_TAG} ."
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                echo 'Pushing Docker image to Docker Hub...'
                 withCredentials([usernamePassword(
                     credentialsId: 'docker_cred',
                     usernameVariable: 'DOCKERHUB_USERNAME',
@@ -66,12 +60,10 @@ pipeline {
 
         stage('Run Docker Container') {
             steps {
-                echo 'Running Docker container...'
                 sh '''
                     docker stop my-node-app-container || true
                     docker rm my-node-app-container || true
                     docker run -d -p 8089:3000 --name my-node-app-container ${DOCKER_REPO}:${IMAGE_TAG}
-                    echo "✅ Container started successfully!"
                 '''
             }
         }
@@ -79,57 +71,33 @@ pipeline {
 
     post {
         success {
-            echo "✅ Build succeeded — sending success email..."
-            withCredentials([usernamePassword(
-                credentialsId: 'gmail_cred',   // Jenkins credentials for Gmail: username & app password
-                usernameVariable: 'GMAIL_USER',
-                passwordVariable: 'GMAIL_PASS'
-            )]) {
-                emailext (
-                    to: 'buvaneshganesan1@gmail.com',
-                    from: "${GMAIL_USER}",
-                    replyTo: "${GMAIL_USER}",
-                    subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                    body: """
-                        <h3>✅ Jenkins Build Successful</h3>
-                        <p>Job: <b>${env.JOB_NAME}</b><br>
-                        Build Number: <b>${env.BUILD_NUMBER}</b><br>
-                        <a href="${env.BUILD_URL}">Click here to view details</a></p>
-                    """,
-                    mimeType: 'text/html',
-                    smtpHost: 'smtp.gmail.com',
-                    smtpPort: '465',
-                    useSsl: true,
-                    authentication: "${GMAIL_USER}:${GMAIL_PASS}"
-                )
-            }
+            emailext(
+                to: 'buvaneshganesan1@gmail.com',
+                subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                    <h3>✅ Jenkins Build Successful</h3>
+                    <p>Job: <b>${env.JOB_NAME}</b><br>
+                    Build Number: <b>${env.BUILD_NUMBER}</b><br>
+                    <a href="${env.BUILD_URL}">View build details</a></p>
+                """,
+                mimeType: 'text/html'
+            )
         }
+
         failure {
-            echo "❌ Build failed — sending failure email..."
-            withCredentials([usernamePassword(
-                credentialsId: 'smtp-gmail',   // Jenkins credentials for Gmail
-                usernameVariable: 'GMAIL_USER',
-                passwordVariable: 'GMAIL_PASS'
-            )]) {
-                emailext (
-                    to: 'buvaneshganesan1@gmail.com',
-                    from: "${GMAIL_USER}",
-                    replyTo: "${GMAIL_USER}",
-                    subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                    body: """
-                        <h3>❌ Jenkins Build Failed</h3>
-                        <p>Job: <b>${env.JOB_NAME}</b><br>
-                        Build Number: <b>${env.BUILD_NUMBER}</b><br>
-                        <a href="${env.BUILD_URL}">Click here to view console output</a></p>
-                    """,
-                    mimeType: 'text/html',
-                    smtpHost: 'smtp.gmail.com',
-                    smtpPort: '465',
-                    useSsl: true,
-                    authentication: "${GMAIL_USER}:${GMAIL_PASS}"
-                )
-            }
+            emailext(
+                to: 'buvaneshganesan1@gmail.com',
+                subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                    <h3>❌ Jenkins Build Failed</h3>
+                    <p>Job: <b>${env.JOB_NAME}</b><br>
+                    Build Number: <b>${env.BUILD_NUMBER}</b><br>
+                    <a href="${env.BUILD_URL}">View console output</a></p>
+                """,
+                mimeType: 'text/html'
+            )
         }
+
         always {
             echo "📧 Email notification processed."
         }
