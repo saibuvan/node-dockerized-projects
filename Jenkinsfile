@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     triggers {
-        pollSCM('H/1 * * * *') // Poll Git every 1 minute for new commits
+        pollSCM('H/1 * * * *') // Poll every 1 minute for new commits
     }
 
     environment {
@@ -80,39 +80,55 @@ pipeline {
     post {
         success {
             echo "✅ Build succeeded — sending success email..."
-            emailext(
-                to: 'buvaneshganesan1@gmail.com',
-                recipientProviders: [
-                    [$class: 'DevelopersRecipientProvider'],
-                    [$class: 'RequesterRecipientProvider']
-                ],
-                subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                <h3>✅ Jenkins Build Successful</h3>
-                <p>Job: <b>${env.JOB_NAME}</b><br>
-                Build Number: <b>${env.BUILD_NUMBER}</b><br>
-                <a href="${env.BUILD_URL}">Click here to view details</a></p>
-                """,
-                mimeType: 'text/html'
-            )
+            withCredentials([usernamePassword(
+                credentialsId: 'gmail_cred',   // Jenkins credentials for Gmail: username & app password
+                usernameVariable: 'GMAIL_USER',
+                passwordVariable: 'GMAIL_PASS'
+            )]) {
+                emailext (
+                    to: 'buvaneshganesan1@gmail.com',
+                    from: "${GMAIL_USER}",
+                    replyTo: "${GMAIL_USER}",
+                    subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                    body: """
+                        <h3>✅ Jenkins Build Successful</h3>
+                        <p>Job: <b>${env.JOB_NAME}</b><br>
+                        Build Number: <b>${env.BUILD_NUMBER}</b><br>
+                        <a href="${env.BUILD_URL}">Click here to view details</a></p>
+                    """,
+                    mimeType: 'text/html',
+                    smtpHost: 'smtp.gmail.com',
+                    smtpPort: '465',
+                    useSsl: true,
+                    authentication: "${GMAIL_USER}:${GMAIL_PASS}"
+                )
+            }
         }
         failure {
             echo "❌ Build failed — sending failure email..."
-            emailext(
-                to: 'buvaneshganesan1@gmail.com',
-                recipientProviders: [
-                    [$class: 'DevelopersRecipientProvider'],
-                    [$class: 'RequesterRecipientProvider']
-                ],
-                subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                <h3>❌ Jenkins Build Failed</h3>
-                <p>Job: <b>${env.JOB_NAME}</b><br>
-                Build Number: <b>${env.BUILD_NUMBER}</b><br>
-                <a href="${env.BUILD_URL}">Click here to view console output</a></p>
-                """,
-                mimeType: 'text/html'
-            )
+            withCredentials([usernamePassword(
+                credentialsId: 'smtp-gmail',   // Jenkins credentials for Gmail
+                usernameVariable: 'GMAIL_USER',
+                passwordVariable: 'GMAIL_PASS'
+            )]) {
+                emailext (
+                    to: 'buvaneshganesan1@gmail.com',
+                    from: "${GMAIL_USER}",
+                    replyTo: "${GMAIL_USER}",
+                    subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                    body: """
+                        <h3>❌ Jenkins Build Failed</h3>
+                        <p>Job: <b>${env.JOB_NAME}</b><br>
+                        Build Number: <b>${env.BUILD_NUMBER}</b><br>
+                        <a href="${env.BUILD_URL}">Click here to view console output</a></p>
+                    """,
+                    mimeType: 'text/html',
+                    smtpHost: 'smtp.gmail.com',
+                    smtpPort: '465',
+                    useSsl: true,
+                    authentication: "${GMAIL_USER}:${GMAIL_PASS}"
+                )
+            }
         }
         always {
             echo "📧 Email notification processed."
