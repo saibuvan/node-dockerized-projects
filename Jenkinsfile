@@ -67,14 +67,12 @@ pipeline {
                 '''
             }
         }
-    }
 
-    stages {
         stage('Notify') {
             steps {
                 mail to: 'buvaneshganesan1@gmail.com',
-                     subject: 'Jenkins Notification',
-                     body: 'This is a test email from Jenkins pipeline.'
+                     subject: "Jenkins Notification: ${currentBuild.currentResult}",
+                     body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} has completed with status: ${currentBuild.currentResult}.\nCheck details: ${env.BUILD_URL}"
             }
         }
     }
