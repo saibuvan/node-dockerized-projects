@@ -1,27 +1,21 @@
 pipeline {
     agent any
 
-    triggers {
-        // Poll SCM every 1 minute (H distributes load)
-        pollSCM('* * * * *')
-    }
-
     environment {
         IMAGE_TAG = "9.0"
         DOCKER_REPO = "buvan654321/my-node-app"
         GIT_BRANCH = "staging"
         GIT_URL = "https://github.com/saibuvan/node-dockerized-projects.git"
-        GIT_CREDENTIALS = "devops" // Replace with your Jenkins Git credentials ID
+        GIT_CREDENTIALS = "devops"
     }
 
     options {
-        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') // Ensure post always runs
+        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // Use credentials for polling private repos
                 git branch: "${GIT_BRANCH}",
                     url: "${GIT_URL}",
                     credentialsId: "${GIT_CREDENTIALS}"
@@ -29,21 +23,15 @@ pipeline {
         }
 
         stage('Install Dependencies') {
-            steps {
-                sh 'npm install'
-            }
+            steps { sh 'npm install' }
         }
 
         stage('Run Tests') {
-            steps {
-                sh 'npm test || echo "Tests failed but continuing..."'
-            }
+            steps { sh 'npm test || echo "Tests failed but continuing..."' }
         }
 
         stage('Docker Build') {
-            steps {
-                sh "docker build -t my-node-app:${IMAGE_TAG} ."
-            }
+            steps { sh "docker build -t my-node-app:${IMAGE_TAG} ." }
         }
 
         stage('Push Docker Image') {
@@ -72,13 +60,23 @@ pipeline {
                 '''
             }
         }
+    }
 
-        stage('Notifys') {
-            steps {
-                mail to: 'buvaneshganesan1@gmail.com',
-                     subject: "Jenkins Notification: ${currentBuild.currentResult}",
-                     body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} has completed with status: ${currentBuild.currentResult}.\nCheck details: ${env.BUILD_URL}"
-            }
+    post {
+        success {
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "Jenkins Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} succeeded!\nCheck details: ${env.BUILD_URL}"
+        }
+        failure {
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} failed!\nCheck details: ${env.BUILD_URL}"
+        }
+        unstable {
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "Jenkins Build UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} is unstable.\nCheck details: ${env.BUILD_URL}"
         }
     }
 }
