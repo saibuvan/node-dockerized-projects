@@ -69,37 +69,13 @@ pipeline {
         }
     }
 
-    post {
-        success {
-            emailext(
-                to: 'buvaneshganesan1@gmail.com',
-                subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                    <h3>✅ Jenkins Build Successful</h3>
-                    <p>Job: <b>${env.JOB_NAME}</b><br>
-                    Build Number: <b>${env.BUILD_NUMBER}</b><br>
-                    <a href="${env.BUILD_URL}">View build details</a></p>
-                """,
-                mimeType: 'text/html'
-            )
-        }
-
-        failure {
-            emailext(
-                to: 'buvaneshganesan1@gmail.com',
-                subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                    <h3>❌ Jenkins Build Failed</h3>
-                    <p>Job: <b>${env.JOB_NAME}</b><br>
-                    Build Number: <b>${env.BUILD_NUMBER}</b><br>
-                    <a href="${env.BUILD_URL}">View console output</a></p>
-                """,
-                mimeType: 'text/html'
-            )
-        }
-
-        always {
-            echo "📧 Email notification processed."
+    stages {
+        stage('Notify') {
+            steps {
+                mail to: 'buvaneshganesan1@gmail.com',
+                     subject: 'Jenkins Notification',
+                     body: 'This is a test email from Jenkins pipeline.'
+            }
         }
     }
 }
