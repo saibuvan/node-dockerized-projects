@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     triggers {
-        pollSCM('H/1 * * * *') // Poll every 1 minute for new commits
+        pollSCM('H/1 * * * *') // Poll Git every 1 minute for new commits
     }
 
     environment {
@@ -10,6 +10,11 @@ pipeline {
         DOCKER_REPO = "buvan654321/my-node-app"
         GIT_BRANCH = "staging"
         GIT_URL = "https://github.com/saibuvan/node-dockerized-projects.git"
+    }
+
+    options {
+        // Ensure post always runs even if a stage fails
+        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
     }
 
     stages {
@@ -37,7 +42,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 echo 'Building Docker image...'
-                sh 'docker build -t my-node-app:${IMAGE_TAG} .'
+                sh "docker build -t my-node-app:${IMAGE_TAG} ."
             }
         }
 
@@ -75,8 +80,12 @@ pipeline {
     post {
         success {
             echo "✅ Build succeeded — sending success email..."
-            emailext (
+            emailext(
                 to: 'buvaneshganesan1@gmail.com',
+                recipientProviders: [
+                    [$class: 'DevelopersRecipientProvider'],
+                    [$class: 'RequesterRecipientProvider']
+                ],
                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body: """
                 <h3>✅ Jenkins Build Successful</h3>
@@ -89,8 +98,12 @@ pipeline {
         }
         failure {
             echo "❌ Build failed — sending failure email..."
-            emailext (
+            emailext(
                 to: 'buvaneshganesan1@gmail.com',
+                recipientProviders: [
+                    [$class: 'DevelopersRecipientProvider'],
+                    [$class: 'RequesterRecipientProvider']
+                ],
                 subject: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 body: """
                 <h3>❌ Jenkins Build Failed</h3>
