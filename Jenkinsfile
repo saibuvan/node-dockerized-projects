@@ -3,7 +3,7 @@ pipeline {
 
     triggers {
         // Poll SCM every 1 minute (H distributes load)
-        pollSCM('H/1 * * * *')
+        pollSCM('* * * * *')
     }
 
     environment {
