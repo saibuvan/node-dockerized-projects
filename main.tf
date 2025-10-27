@@ -28,3 +28,4 @@ resource "docker_container" "node_app_container" {
 
   restart = "always"
 }
+
