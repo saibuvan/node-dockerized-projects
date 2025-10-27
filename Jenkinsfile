@@ -61,9 +61,9 @@ pipeline {
             steps {
                 // Copy Terraform files to /opt if not already there
                 sh '''
-                    sudo mkdir -p /opt/jenkins_projects/node-dockerized-projects
-                    sudo cp -r terraform /opt/jenkins_projects/node-dockerized-projects/
-                    sudo chown -R jenkins:jenkins /opt/jenkins_projects/node-dockerized-projects
+                    mkdir -p /opt/jenkins_projects/node-dockerized-projects
+                    cp -r terraform /opt/jenkins_projects/node-dockerized-projects/
+                    chown -R jenkins:jenkins /opt/jenkins_projects/node-dockerized-projects
                 '''
             }
         }
