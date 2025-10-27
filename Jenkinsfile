@@ -53,7 +53,7 @@ pipeline {
 
         stage('Deploy using Terraform') {
             steps {
-                dir("${TF_DIR}") {
+                dir('/root/apps/node-dockerized-projects/node-dockerized-projects') {
                     sh '''
                         terraform init -input=false
                         terraform apply -auto-approve \
