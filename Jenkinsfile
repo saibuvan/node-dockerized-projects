@@ -78,18 +78,20 @@ pipeline {
         }
 
         stage('Terraform Init & Apply') {
-            steps {
-                dir("${TF_DIR}") {
-                    sh '''
-                        terraform init -input=false
-                        terraform apply -auto-approve \
-                          -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
-                          -var="container_name=my-node-app-container" \
-                          -var="host_port=8089"
-                    '''
-                }
+           steps {
+             withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
+            dir("${TF_DIR}") {
+                sh '''
+                    terraform init -input=false
+                    terraform apply -auto-approve \
+                      -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                      -var="container_name=my-node-app-container" \
+                      -var="host_port=${HOST_PORT}"
+                '''
             }
         }
+    }
+}
 
         stage('Verify Deployment') {
             steps {
