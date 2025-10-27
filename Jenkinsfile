@@ -99,23 +99,28 @@ pipeline {
                     echo "Waiting for container to start..."
                     sleep 5
                     echo "Checking app response..."
-                    curl -s http://localhost:8089 || echo "App not responding yet."
+                    curl -s http://localhost:${HOST_PORT} || echo "App not responding yet."
                 '''
             }
         }
     }
 
     post {
-        success {
+    success {
+        withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "✅ Jenkins SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "App deployed successfully using Terraform!\nCheck: http://localhost:8089\n\nBuild: ${env.BUILD_URL}"
-        }
-        failure {
-            mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ Jenkins FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Build failed.\nSee details: ${env.BUILD_URL}"
+                 body: """App deployed successfully using Terraform!
+Check: http://localhost:${HOST_PORT}
+
+Build: ${env.BUILD_URL}"""
         }
     }
+    failure {
+        mail to: 'buvaneshganesan1@gmail.com',
+             subject: "❌ Jenkins FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+             body: "Build failed.\nSee details: ${env.BUILD_URL}"
+    }
+}
 }
 
