@@ -15,6 +15,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 git branch: "${GIT_BRANCH}",
@@ -61,28 +62,22 @@ pipeline {
             steps {
                 sh '''
                     mkdir -p /opt/jenkins_projects/node-dockerized-projects
-                    cp -r terraform /opt/jenkins_projects/node-dockerized-projects/
+                    cp -r terraform /opt/jenkins_projects/node-dockerized-projects/ || true
                     chown -R jenkins:jenkins /opt/jenkins_projects/node-dockerized-projects
                 '''
             }
         }
 
-        stage('Terraform Destroy (Clean up old container)') {
+        stage('Clean Existing Container (Manual Cleanup)') {
             steps {
-                dir("${TF_DIR}") {
-                    sh '''
-                        echo "Destroying any existing Terraform-managed container..."
-                        terraform init -input=false
-                        terraform destroy -auto-approve \
-                          -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
-                          -var="container_name=my-node-app-container" \
-                          -var="host_port=8089" || true
-                    '''
-                }
+                sh '''
+                    echo "Cleaning up any existing container manually before Terraform apply..."
+                    docker rm -f my-node-app-container || true
+                '''
             }
         }
 
-        stage('Deploy using Terraform (Create new container)') {
+        stage('Terraform Init & Apply') {
             steps {
                 dir("${TF_DIR}") {
                     sh '''
