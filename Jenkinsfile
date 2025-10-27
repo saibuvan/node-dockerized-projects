@@ -70,9 +70,8 @@ pipeline {
 
         stage('Deploy using Terraform') {
             steps {
-                dir("${TF_DIR}") {
+                dir('/opt/jenkins_projects/node-dockerized-projects/terraform') {
                     sh '''
-                        echo "Current directory: $(pwd)"
                         terraform init -input=false
                         terraform apply -auto-approve \
                           -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
