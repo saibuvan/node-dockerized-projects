@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG = "9.0"
-        DOCKER_REPO = "buvan654321/my-node-app"
-        GIT_BRANCH = "staging"
-        GIT_URL = "https://github.com/saibuvan/node-dockerized-projects.git"
+        IMAGE_TAG       = "9.0"
+        DOCKER_REPO     = "buvan654321/my-node-app"
+        GIT_BRANCH      = "staging"
+        GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
-        TF_DIR = "terraform"
+        TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
     }
 
     options {
@@ -24,15 +24,21 @@ pipeline {
         }
 
         stage('Install Dependencies') {
-            steps { sh 'npm install' }
+            steps {
+                sh 'npm install'
+            }
         }
 
         stage('Run Tests') {
-            steps { sh 'npm test || echo "Tests failed but continuing..."' }
+            steps {
+                sh 'npm test || echo "Tests failed but continuing..."'
+            }
         }
 
         stage('Docker Build') {
-            steps { sh "docker build -t ${DOCKER_REPO}:${IMAGE_TAG} ." }
+            steps {
+                sh "docker build -t ${DOCKER_REPO}:${IMAGE_TAG} ."
+            }
         }
 
         stage('Push Docker Image') {
@@ -51,10 +57,22 @@ pipeline {
             }
         }
 
+        stage('Prepare Terraform Directory') {
+            steps {
+                // Copy Terraform files to /opt if not already there
+                sh '''
+                    sudo mkdir -p /opt/jenkins_projects/node-dockerized-projects
+                    sudo cp -r terraform /opt/jenkins_projects/node-dockerized-projects/
+                    sudo chown -R jenkins:jenkins /opt/jenkins_projects/node-dockerized-projects
+                '''
+            }
+        }
+
         stage('Deploy using Terraform') {
             steps {
-                dir('/root/apps/node-dockerized-projects/node-dockerized-projects') {
+                dir("${TF_DIR}") {
                     sh '''
+                        echo "Current directory: $(pwd)"
                         terraform init -input=false
                         terraform apply -auto-approve \
                           -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
@@ -68,6 +86,7 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
+                    echo "Waiting for container to start..."
                     sleep 5
                     echo "Checking app response..."
                     curl -s http://localhost:8089 || echo "App not responding yet."
@@ -89,3 +108,4 @@ pipeline {
         }
     }
 }
+
