@@ -7,6 +7,7 @@ pipeline {
         GIT_BRANCH = "staging"
         GIT_URL = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
+        TF_DIR = "terraform"
     }
 
     options {
@@ -31,7 +32,7 @@ pipeline {
         }
 
         stage('Docker Build') {
-            steps { sh "docker build -t my-node-app:${IMAGE_TAG} ." }
+            steps { sh "docker build -t ${DOCKER_REPO}:${IMAGE_TAG} ." }
         }
 
         stage('Push Docker Image') {
@@ -43,7 +44,6 @@ pipeline {
                 )]) {
                     sh '''
                         echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-                        docker tag my-node-app:${IMAGE_TAG} ${DOCKER_REPO}:${IMAGE_TAG}
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
                         docker logout
                     '''
@@ -51,12 +51,26 @@ pipeline {
             }
         }
 
-        stage('Run Docker Container') {
+        stage('Deploy using Terraform') {
+            steps {
+                dir("${TF_DIR}") {
+                    sh '''
+                        terraform init -input=false
+                        terraform apply -auto-approve \
+                          -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                          -var="container_name=my-node-app-container" \
+                          -var="host_port=8089"
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
             steps {
                 sh '''
-                    docker stop my-node-app-container || true
-                    docker rm my-node-app-container || true
-                    docker run -d -p 8089:3000 --name my-node-app-container ${DOCKER_REPO}:${IMAGE_TAG}
+                    sleep 5
+                    echo "Checking app response..."
+                    curl -s http://localhost:8089 || echo "App not responding yet."
                 '''
             }
         }
@@ -65,18 +79,13 @@ pipeline {
     post {
         success {
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "Jenkins Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} succeeded!\nCheck details: ${env.BUILD_URL}"
+                 subject: "✅ Jenkins SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "App deployed successfully using Terraform!\nCheck: http://localhost:8089\n\nBuild: ${env.BUILD_URL}"
         }
         failure {
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} failed!\nCheck details: ${env.BUILD_URL}"
-        }
-        unstable {
-            mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "Jenkins Build UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "The Jenkins build #${env.BUILD_NUMBER} for ${env.JOB_NAME} is unstable.\nCheck details: ${env.BUILD_URL}"
+                 subject: "❌ Jenkins FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Build failed.\nSee details: ${env.BUILD_URL}"
         }
     }
 }
