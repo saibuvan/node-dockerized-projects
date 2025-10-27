@@ -59,7 +59,6 @@ pipeline {
 
         stage('Prepare Terraform Directory') {
             steps {
-                // Copy Terraform files to /opt if not already there
                 sh '''
                     mkdir -p /opt/jenkins_projects/node-dockerized-projects
                     cp -r terraform /opt/jenkins_projects/node-dockerized-projects/
@@ -68,9 +67,24 @@ pipeline {
             }
         }
 
-        stage('Deploy using Terraform') {
+        stage('Terraform Destroy (Clean up old container)') {
             steps {
-                dir('/opt/jenkins_projects/node-dockerized-projects/terraform') {
+                dir("${TF_DIR}") {
+                    sh '''
+                        echo "Destroying any existing Terraform-managed container..."
+                        terraform init -input=false
+                        terraform destroy -auto-approve \
+                          -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                          -var="container_name=my-node-app-container" \
+                          -var="host_port=8089" || true
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy using Terraform (Create new container)') {
+            steps {
+                dir("${TF_DIR}") {
                     sh '''
                         terraform init -input=false
                         terraform apply -auto-approve \
