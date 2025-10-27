@@ -8,10 +8,12 @@ pipeline {
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
         TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
+        LOCK_FILE       = "/tmp/terraform.lock"
     }
 
     options {
         catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
+        timestamps()
     }
 
     stages {
@@ -32,7 +34,7 @@ pipeline {
 
         stage('Run Tests') {
             steps {
-                sh 'npm test || echo "Tests failed but continuing..."'
+                sh 'npm test || echo "⚠️ Tests failed but continuing..."'
             }
         }
 
@@ -77,50 +79,69 @@ pipeline {
             }
         }
 
-        stage('Terraform Init & Apply') {
-           steps {
-             withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
-            dir("${TF_DIR}") {
-                sh '''
-                    terraform init -input=false
-                    terraform apply -auto-approve \
-                      -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
-                      -var="container_name=my-node-app-container" \
-                      -var="host_port=${HOST_PORT}"
-                '''
+        stage('Terraform Init & Apply (with Lock)') {
+            steps {
+                withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
+                    dir("${TF_DIR}") {
+                        sh '''
+                            # Check for lock
+                            if [ -f "${LOCK_FILE}" ]; then
+                                echo "🚫 Terraform lock exists! Another job may be running. Exiting..."
+                                exit 1
+                            fi
+
+                            echo "🔒 Creating Terraform lock..."
+                            touch "${LOCK_FILE}"
+
+                            terraform init -input=false
+                            terraform apply -auto-approve \
+                              -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                              -var="container_name=my-node-app-container" \
+                              -var="host_port=${HOST_PORT}"
+
+                            echo "✅ Terraform apply completed successfully."
+                            rm -f "${LOCK_FILE}"
+                        '''
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Verify Deployment') {
             steps {
-                sh '''
-                    echo "Waiting for container to start..."
-                    sleep 5
-                    echo "Checking app response..."
-                    curl -s http://localhost:${HOST_PORT} || echo "App not responding yet."
-                '''
+                withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
+                    sh '''
+                        echo "Waiting for container to start..."
+                        sleep 5
+                        echo "Checking app response..."
+                        curl -s http://localhost:${HOST_PORT} || echo "⚠️ App not responding yet."
+                    '''
+                }
             }
         }
     }
 
     post {
-    success {
-        withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
-            mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "✅ Jenkins SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """App deployed successfully using Terraform!
+        success {
+            withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
+                mail to: 'buvaneshganesan1@gmail.com',
+                     subject: "✅ Jenkins SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                     body: """App deployed successfully using Terraform!
 Check: http://localhost:${HOST_PORT}
 
 Build: ${env.BUILD_URL}"""
+            }
+        }
+
+        failure {
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "❌ Jenkins FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Build failed.\nSee details: ${env.BUILD_URL}"
+        }
+
+        always {
+            // Clean up lock if job was aborted or failed
+            sh 'rm -f /tmp/terraform.lock || true'
         }
     }
-    failure {
-        mail to: 'buvaneshganesan1@gmail.com',
-             subject: "❌ Jenkins FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-             body: "Build failed.\nSee details: ${env.BUILD_URL}"
-    }
 }
-}
-
