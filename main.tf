@@ -27,7 +27,7 @@ resource "docker_container" "node_app_container" {
 
   restart = "always"
 
-  # 🔧 Handle duplicate container issues gracefully
+  # Handle duplicate container issues gracefully
   provisioner "local-exec" {
     when    = destroy
     command = "docker rm -f ${self.name} || true"
