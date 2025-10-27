@@ -68,7 +68,7 @@ pipeline {
             }
         }
 
-        stage('Deploy using Terraform app') {
+        stage('Deploy using Terraform') {
             steps {
                 dir('/opt/jenkins_projects/node-dockerized-projects/terraform') {
                     sh '''
