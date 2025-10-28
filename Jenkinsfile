@@ -79,7 +79,7 @@ pipeline {
             }
         }
 
-        // 🔸 NEW: Manual Approval Step before Apply
+        // 🔸 Manual Approval before deploying to staging
         stage('Approval for Staging Deployment') {
             when {
                 expression { env.GIT_BRANCH == 'staging' }
@@ -91,19 +91,27 @@ pipeline {
             }
         }
 
+        // 🔸 Terraform Apply with Lock + Retry logic
         stage('Terraform Init & Apply (with Lock)') {
             steps {
                 withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
                     dir("${TF_DIR}") {
                         sh '''
-                            # Check for lock
-                            if [ -f "${LOCK_FILE}" ]; then
-                                echo "🚫 Terraform lock exists! Another job may be running. Exiting..."
+                            echo "🔍 Checking for existing Terraform lock..."
+                            retries=5
+                            while [ -f "$LOCK_FILE" ] && [ $retries -gt 0 ]; do
+                                echo "🔒 Lock file exists. Waiting 10s for release..."
+                                sleep 10
+                                retries=$((retries - 1))
+                            done
+
+                            if [ -f "$LOCK_FILE" ]; then
+                                echo "🚫 Another job is still holding the lock after waiting. Exiting..."
                                 exit 1
                             fi
 
                             echo "🔒 Creating Terraform lock..."
-                            touch "${LOCK_FILE}"
+                            echo "LOCKED by Jenkins build #${BUILD_NUMBER} at $(date)" > "$LOCK_FILE"
 
                             terraform init -input=false
                             terraform apply -auto-approve \
@@ -112,7 +120,7 @@ pipeline {
                               -var="host_port=${HOST_PORT}"
 
                             echo "✅ Terraform apply completed successfully."
-                            rm -f "${LOCK_FILE}"
+                            rm -f "$LOCK_FILE"
                         '''
                     }
                 }
@@ -152,6 +160,7 @@ Build: ${env.BUILD_URL}"""
         }
 
         always {
+            echo "🧹 Cleaning up lock file if it exists..."
             sh 'rm -f /tmp/terraform.lock || true'
         }
     }
