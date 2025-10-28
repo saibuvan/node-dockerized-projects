@@ -127,7 +127,7 @@ pipeline {
             }
         }
 
-        stage('Verify Deployment') {
+        stage('Verify Deployments') {
             steps {
                 withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
                     sh '''
