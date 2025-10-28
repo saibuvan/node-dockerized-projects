@@ -80,7 +80,7 @@ pipeline {
         }
 
         // 🔸 Manual Approval before deploying to staging
-        stage('Approval for Staging Deployment') {
+        stage('Approval for Staging Deployments') {
             when {
                 expression { env.GIT_BRANCH == 'staging' }
             }
