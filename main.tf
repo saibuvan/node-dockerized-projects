@@ -20,9 +20,20 @@ resource "docker_container" "node_app_container" {
   name  = var.container_name
   image = docker_image.node_app_image.name
 
+  # Expose multiple ports
   ports {
     internal = 3000
     external = var.host_port
+  }
+
+  ports {
+    internal = 80
+    external = 80
+  }
+
+  ports {
+    internal = 22
+    external = 22
   }
 
   restart = "always"
@@ -37,4 +48,3 @@ resource "docker_container" "node_app_container" {
     prevent_destroy = false
   }
 }
-
