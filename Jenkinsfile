@@ -34,7 +34,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    env.APP_PORT = portLine ?: "3000"  // fallback
+                    env.APP_PORT = portLine ?: "3000"
                     echo "📦 Detected Application Port: ${env.APP_PORT}"
                 }
             }
@@ -112,7 +112,6 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        // use triple-single-quote to avoid Groovy parsing $
                         sh '''#!/bin/bash
                             echo "🔍 Checking for existing Terraform lock..."
                             retries=5
@@ -144,14 +143,34 @@ pipeline {
             }
         }
 
-        stage('Verify Deployment') {
+        stage('Verify Deployment (Health Check)') {
             steps {
-                sh """
-                    echo "⏳ Waiting for app to start..."
-                    sleep 5
-                    echo "🔍 Checking app health..."
-                    curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
-                """
+                script {
+                    def maxRetries = 5
+                    def success = false
+                    def healthUrl = "http://localhost:${APP_PORT}/health"
+
+                    for (int i = 1; i <= maxRetries; i++) {
+                        echo "🔍 Health check attempt ${i}/${maxRetries}..."
+                        def response = sh(
+                            script: "curl -s -o /dev/null -w '%{http_code}' ${healthUrl} || true",
+                            returnStdout: true
+                        ).trim()
+
+                        if (response == '200') {
+                            echo "✅ Application is healthy!"
+                            success = true
+                            break
+                        } else {
+                            echo "⚠️ Health check failed (HTTP ${response}), retrying in 5s..."
+                            sleep 5
+                        }
+                    }
+
+                    if (!success) {
+                        error("❌ Application health check failed after ${maxRetries} attempts.")
+                    }
+                }
             }
         }
     }
@@ -161,7 +180,7 @@ pipeline {
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """App deployed successfully using Terraform!
-Check: http://localhost:${APP_PORT}
+Check: http://localhost:${APP_PORT}/health
 
 Build: ${env.BUILD_URL}"""
         }
