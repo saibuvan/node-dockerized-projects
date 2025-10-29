@@ -8,37 +8,41 @@ terraform {
   required_version = ">= 1.0.0"
 }
 
+# -----------------------------
+# 🐳 Docker Provider
+# -----------------------------
 provider "docker" {}
 
-# Pull image from Docker Hub
+# -----------------------------
+# 🧩 Docker Image
+# -----------------------------
 resource "docker_image" "node_app_image" {
   name = var.docker_image
 }
 
-# Run container locally
+# -----------------------------
+# 🚀 Docker Container
+# -----------------------------
 resource "docker_container" "node_app_container" {
   name  = var.container_name
   image = docker_image.node_app_image.name
 
-  # Expose multiple ports
-  ports {
-    internal = 3000
-    external = var.host_port
-  }
-
-  ports {
-    internal = 80
-    external = 80
-  }
-
-  ports {
-    internal = 22
-    external = 22
+  # -----------------------------
+  # 🔒 Expose required ports (App, HTTP, SSH)
+  # -----------------------------
+  dynamic "ports" {
+    for_each = toset(var.exposed_ports)
+    content {
+      internal = ports.value.internal
+      external = ports.value.external
+    }
   }
 
   restart = "always"
 
-  # Handle duplicate container issues gracefully
+  # -----------------------------
+  # 🧹 Graceful cleanup when destroying
+  # -----------------------------
   provisioner "local-exec" {
     when    = destroy
     command = "docker rm -f ${self.name} || true"
