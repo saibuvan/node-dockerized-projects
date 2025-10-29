@@ -29,14 +29,13 @@ pipeline {
         stage('Detect App Port from Dockerfile') {
             steps {
                 script {
-                    // Get port from Dockerfile (ARG APP_PORT)
                     def portLine = sh(
-                        script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2",
+                        script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2 || echo ''",
                         returnStdout: true
                     ).trim()
 
-                    env.APP_PORT = portLine ?: "3000"  // fallback to 3000 if not found
-                    echo "📦 Application port detected: ${env.APP_PORT}"
+                    env.APP_PORT = portLine ?: "3000"  // fallback
+                    echo "📦 Detected Application Port: ${env.APP_PORT}"
                 }
             }
         }
@@ -92,7 +91,7 @@ pipeline {
         stage('Clean Existing Container') {
             steps {
                 sh '''
-                    echo "Cleaning up existing container..."
+                    echo "🧹 Cleaning up existing container..."
                     docker rm -f my-node-app-container || true
                 '''
             }
@@ -113,11 +112,12 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        sh """
+                        // use triple-single-quote to avoid Groovy parsing $
+                        sh '''#!/bin/bash
                             echo "🔍 Checking for existing Terraform lock..."
                             retries=5
                             while [ -f "$LOCK_FILE" ] && [ $retries -gt 0 ]; do
-                                echo "🔒 Lock exists, waiting 10s..."
+                                echo "🔒 Lock exists. Waiting 10s..."
                                 sleep 10
                                 retries=$((retries - 1))
                             done
@@ -138,7 +138,7 @@ pipeline {
 
                             echo "✅ Terraform apply completed."
                             rm -f "$LOCK_FILE"
-                        """
+                        '''
                     }
                 }
             }
