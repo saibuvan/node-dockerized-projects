@@ -10,9 +10,6 @@ variable "container_name" {
   default     = "my-node-app-container"
 }
 
-# -----------------------------
-# 🌐 Port Configuration
-# -----------------------------
 variable "host_port" {
   description = "External port for the Node.js app"
   type        = number
