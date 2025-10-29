@@ -1,17 +1,17 @@
 variable "docker_image" {
-  description = "Docker image with tag"
+  description = "Docker image to use"
   type        = string
-  default     = "buvan654321/my-node-app:9.0"
+  default     = "buvan654321/my-node-app:latest"
 }
 
 variable "container_name" {
-  description = "Container name"
+  description = "Name of the container"
   type        = string
-  default     = "my-node-app-container"
+  default     = "node_app_container"
 }
 
 variable "host_port" {
-  description = "Host port to expose"
+  description = "External port for the Node app"
   type        = number
-  default     = 8089
+  default     = 3000
 }
