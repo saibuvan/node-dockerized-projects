@@ -18,11 +18,26 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
                 git branch: "${GIT_BRANCH}",
                     url: "${GIT_URL}",
                     credentialsId: "${GIT_CREDENTIALS}"
+            }
+        }
+
+        stage('Detect App Port from Dockerfile') {
+            steps {
+                script {
+                    // Get port from Dockerfile (ARG APP_PORT)
+                    def portLine = sh(
+                        script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2",
+                        returnStdout: true
+                    ).trim()
+
+                    env.APP_PORT = portLine ?: "3000"  // fallback to 3000 if not found
+                    echo "📦 Application port detected: ${env.APP_PORT}"
+                }
             }
         }
 
@@ -40,7 +55,11 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh "docker build -t ${DOCKER_REPO}:${IMAGE_TAG} ."
+                sh """
+                    docker build \
+                        --build-arg APP_PORT=${APP_PORT} \
+                        -t ${DOCKER_REPO}:${IMAGE_TAG} .
+                """
             }
         }
 
@@ -70,17 +89,16 @@ pipeline {
             }
         }
 
-        stage('Clean Existing Container (Manual Cleanup)') {
+        stage('Clean Existing Container') {
             steps {
                 sh '''
-                    echo "Cleaning up any existing container manually before Terraform apply..."
+                    echo "Cleaning up existing container..."
                     docker rm -f my-node-app-container || true
                 '''
             }
         }
 
-        // 🔸 Manual Approval before deploying to staging
-        stage('Approval for Staging Deployments') {
+        stage('Approval for Staging Deployment') {
             when {
                 expression { env.GIT_BRANCH == 'staging' }
             }
@@ -91,22 +109,21 @@ pipeline {
             }
         }
 
-        // 🔸 Terraform Apply with Lock + Retry logic
         stage('Terraform Init & Apply (with Lock)') {
             steps {
-                withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
-                    dir("${TF_DIR}") {
-                        sh '''
+                dir("${TF_DIR}") {
+                    script {
+                        sh """
                             echo "🔍 Checking for existing Terraform lock..."
                             retries=5
                             while [ -f "$LOCK_FILE" ] && [ $retries -gt 0 ]; do
-                                echo "🔒 Lock file exists. Waiting 10s for release..."
+                                echo "🔒 Lock exists, waiting 10s..."
                                 sleep 10
                                 retries=$((retries - 1))
                             done
 
                             if [ -f "$LOCK_FILE" ]; then
-                                echo "🚫 Another job is still holding the lock after waiting. Exiting..."
+                                echo "🚫 Another job still holding lock. Exiting..."
                                 exit 1
                             fi
 
@@ -117,50 +134,46 @@ pipeline {
                             terraform apply -auto-approve \
                               -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
                               -var="container_name=my-node-app-container" \
-                              -var="host_port=${HOST_PORT}"
+                              -var="host_port=${APP_PORT}"
 
-                            echo "✅ Terraform apply completed successfully."
+                            echo "✅ Terraform apply completed."
                             rm -f "$LOCK_FILE"
-                        '''
+                        """
                     }
                 }
             }
         }
 
-        stage('Verify Deployments') {
+        stage('Verify Deployment') {
             steps {
-                withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
-                    sh '''
-                        echo "Waiting for container to start..."
-                        sleep 5
-                        echo "Checking app response..."
-                        curl -s http://localhost:${HOST_PORT} || echo "⚠️ App not responding yet."
-                    '''
-                }
+                sh """
+                    echo "⏳ Waiting for app to start..."
+                    sleep 5
+                    echo "🔍 Checking app health..."
+                    curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
+                """
             }
         }
     }
 
     post {
         success {
-            withCredentials([string(credentialsId: 'app_port', variable: 'HOST_PORT')]) {
-                mail to: 'buvaneshganesan1@gmail.com',
-                     subject: "✅ Jenkins SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                     body: """App deployed successfully using Terraform!
-Check: http://localhost:${HOST_PORT}
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """App deployed successfully using Terraform!
+Check: http://localhost:${APP_PORT}
 
 Build: ${env.BUILD_URL}"""
-            }
         }
 
         failure {
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ Jenkins FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: "Build failed.\nSee details: ${env.BUILD_URL}"
         }
 
         always {
-            echo "🧹 Cleaning up lock file if it exists..."
+            echo "🧹 Cleaning up lock file..."
             sh 'rm -f /tmp/terraform.lock || true'
         }
     }

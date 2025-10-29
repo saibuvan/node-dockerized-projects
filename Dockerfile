@@ -8,13 +8,19 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install production dependencies
-RUN npm install --staging
+RUN npm install --production
 
 # Copy the rest of the app
 COPY . .
 
-# Expose the app port
-EXPOSE 3000
+# Define build-time argument for app port (default: 3000)
+ARG APP_PORT=3000
 
-# Start app without PM2
-CMD ["node", "app.js"]
+# Make port available as environment variable
+ENV PORT=${APP_PORT}
+
+# Expose the app port dynamically
+EXPOSE ${PORT}
+
+# Start the Node.js app
+CMD ["sh", "-c", "node app.js"]

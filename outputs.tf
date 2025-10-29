@@ -16,8 +16,7 @@ output "image_used" {
 output "exposed_ports" {
   description = "Ports exposed from the container"
   value = [
-    "3000 (Node App)",
-    "80 (HTTP)",
-    "22 (SSH)"
+    for p in var.exposed_ports :
+    "${p.external} (external) → ${p.internal} (internal)"
   ]
 }
