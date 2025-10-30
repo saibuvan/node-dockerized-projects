@@ -97,7 +97,7 @@ pipeline {
             }
         }
 
-        stage('Approval for Staging Deployment') {
+        stage('Approval for Staging Deployments') {
             when {
                 expression { env.GIT_BRANCH == 'staging' }
             }
