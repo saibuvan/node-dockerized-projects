@@ -15,6 +15,7 @@ pipeline {
     options {
         catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
         timestamps()
+        timeout(time: 20, unit: 'MINUTES') // overall pipeline timeout
     }
 
     stages {
@@ -63,8 +64,10 @@ pipeline {
                     sh '''
                         echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
                         
-                        # Build and push new version
+                        echo "🛠 Building Docker image ${DOCKER_REPO}:${NEW_IMAGE_TAG}..."
                         docker build -t ${DOCKER_REPO}:${NEW_IMAGE_TAG} .
+
+                        echo "📤 Pushing image to Docker Hub..."
                         docker push ${DOCKER_REPO}:${NEW_IMAGE_TAG}
 
                         docker logout
@@ -100,27 +103,28 @@ pipeline {
                     script {
                         sh '''#!/bin/bash
                             set -e
-                            echo "🔍 Checking for existing Terraform lock..."
-                            retries=5
-                            while [ -f "$LOCK_FILE" ] && [ $retries -gt 0 ]; do
-                                echo "🔒 Lock exists. Waiting 10s..."
-                                sleep 10
-                                retries=$((retries - 1))
-                            done
+                            set -x
 
-                            if [ -f "$LOCK_FILE" ]; then
-                                echo "🚫 Another job still holding lock. Exiting..."
-                                exit 1
-                            fi
+                            echo "🧹 Cleaning any existing Terraform lock..."
+                            rm -f "$LOCK_FILE" || true
+
+                            echo "🧹 Cleaning old containers and images..."
+                            docker ps -aq --filter "name=my-node-app-container" | xargs -r docker rm -f
+                            docker image prune -f
 
                             echo "🔒 Creating Terraform lock..."
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER} at $(date)" > "$LOCK_FILE"
 
-                            terraform init -input=false
-                            terraform apply -auto-approve \
+                            echo "🚀 Initializing Terraform..."
+                            timeout 5m terraform init -input=false
+
+                            echo "📦 Applying Terraform changes..."
+                            timeout 5m terraform apply -auto-approve \
                                 -var="docker_image=${DOCKER_REPO}:${NEW_IMAGE_TAG}" \
                                 -var="container_name=my-node-app-container" \
                                 -var="host_port=${APP_PORT}"
+
+                            echo "✅ Terraform apply completed successfully."
                         '''
                     }
                 }
@@ -131,28 +135,30 @@ pipeline {
             steps {
                 script {
                     def healthUrl = "http://localhost:${APP_PORT}/health"
-                    def retries = 5
+                    def retries = 3
                     def success = false
 
-                    for (int i = 1; i <= retries; i++) {
-                        echo "🔍 Health check attempt ${i}/${retries}..."
-                        def code = sh(
-                            script: "curl -s -o /dev/null -w '%{http_code}' ${healthUrl} || true",
-                            returnStdout: true
-                        ).trim()
+                    timeout(time: 2, unit: 'MINUTES') {
+                        for (int i = 1; i <= retries; i++) {
+                            echo "🔍 Health check attempt ${i}/${retries}..."
+                            def code = sh(
+                                script: "curl -s -o /dev/null -w '%{http_code}' ${healthUrl} || true",
+                                returnStdout: true
+                            ).trim()
 
-                        if (code == '200') {
-                            echo "✅ Application (v${NEW_IMAGE_TAG}) is healthy!"
-                            success = true
-                            break
-                        } else {
-                            echo "⚠️ Health check failed (HTTP ${code}), retrying in 5s..."
-                            sleep 5
+                            if (code == '200') {
+                                echo "✅ Application (v${NEW_IMAGE_TAG}) is healthy!"
+                                success = true
+                                break
+                            } else {
+                                echo "⚠️ Health check failed (HTTP ${code}), retrying in 10s..."
+                                sleep 10
+                            }
                         }
-                    }
 
-                    if (!success) {
-                        error("❌ Health check failed for new version — initiating rollback to ${OLD_IMAGE_TAG}")
+                        if (!success) {
+                            error("❌ Health check failed for new version — initiating rollback to ${OLD_IMAGE_TAG}")
+                        }
                     }
                 }
             }
@@ -166,16 +172,17 @@ pipeline {
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """New version ${NEW_IMAGE_TAG} deployed successfully!
 
-Check health: http://localhost:${APP_PORT}/health
-Build: ${env.BUILD_URL}"""
+Health URL: http://localhost:${APP_PORT}/health
+Build Details: ${env.BUILD_URL}"""
         }
 
         failure {
             script {
-                echo "⚠️ Rolling back to version ${OLD_IMAGE_TAG}..."
+                echo "⚠️ Deployment failed. Rolling back to version ${OLD_IMAGE_TAG}..."
                 dir("${TF_DIR}") {
                     sh '''
-                        terraform apply -auto-approve \
+                        set -x
+                        timeout 5m terraform apply -auto-approve \
                             -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}" \
                             -var="container_name=my-node-app-container" \
                             -var="host_port=${APP_PORT}"
@@ -190,7 +197,7 @@ Build: ${env.BUILD_URL}"""
                  body: """Deployment of version ${NEW_IMAGE_TAG} failed.
 Rollback to ${OLD_IMAGE_TAG} completed.
 
-Check: ${env.BUILD_URL}"""
+Build Details: ${env.BUILD_URL}"""
         }
 
         always {
