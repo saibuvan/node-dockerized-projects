@@ -2,7 +2,8 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG       = "10.0"
+        IMAGE_TAG       = "10.0"  // new deployment
+        OLD_IMAGE_TAG   = "9.0"   // rollback version
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
@@ -34,7 +35,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    env.APP_PORT = portLine ?: "3000"  // fallback
+                    env.APP_PORT = portLine ?: "3000"
                     echo "📦 Detected Application Port: ${env.APP_PORT}"
                 }
             }
@@ -112,7 +113,6 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        // use triple-single-quote to avoid Groovy parsing $
                         sh '''#!/bin/bash
                             echo "🔍 Checking for existing Terraform lock..."
                             retries=5
@@ -167,9 +167,26 @@ Build: ${env.BUILD_URL}"""
         }
 
         failure {
+            echo "🚨 Deployment failed! Rolling back to previous version ${OLD_IMAGE_TAG}..."
+
+            dir("${TF_DIR}") {
+                sh '''#!/bin/bash
+                    echo "🔄 Starting rollback to previous image..."
+                    terraform init -input=false
+                    terraform apply -auto-approve \
+                      -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}" \
+                      -var="container_name=my-node-app-container" \
+                      -var="host_port=${APP_PORT}"
+                    echo "✅ Rollback completed. Application reverted to version ${OLD_IMAGE_TAG}."
+                '''
+            }
+
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Build failed.\nSee details: ${env.BUILD_URL}"
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rolled back to ${OLD_IMAGE_TAG})",
+                 body: """Build failed and automatically rolled back to version ${OLD_IMAGE_TAG}.
+Please verify the environment.
+
+Build details: ${env.BUILD_URL}"""
         }
 
         always {
