@@ -34,7 +34,7 @@ pipeline {
                     if ! docker ps >/dev/null 2>&1; then
                         echo "⚠️ Jenkins user cannot access Docker socket. Fixing permissions..."
                         if [ -S /var/run/docker.sock ]; then
-                            sudo chmod 666 /var/run/docker.sock || true
+                            sudo chmod 777 /var/run/docker.sock || true
                         else
                             echo "🚫 Docker socket not found at /var/run/docker.sock"
                             exit 1
