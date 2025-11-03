@@ -1,28 +1,51 @@
-# Create a custom Docker network for communication
+terraform {
+  required_providers {
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
+    }
+  }
+  required_version = ">= 1.0.0"
+}
+
+provider "docker" {}
+
+# ----------------------------
+# Create a custom Docker network
+# ----------------------------
 resource "docker_network" "app_network" {
   name = "app_network"
 }
 
-# Pull the Node.js image
+# ----------------------------
+# Pull Node.js app image
+# ----------------------------
 resource "docker_image" "node_app_image" {
   name = var.docker_image
-}
-
-# Pull the PostgreSQL image
-resource "docker_image" "postgres_image" {
-  name = var.postgres_image
   keep_locally = false
 }
 
-# Create a volume for PostgreSQL persistence
+# ----------------------------
+# Pull PostgreSQL image
+# ----------------------------
+resource "docker_image" "postgres_image" {
+  name         = var.postgres_image
+  keep_locally = false
+}
+
+# ----------------------------
+# Persistent volume for PostgreSQL
+# ----------------------------
 resource "docker_volume" "postgres_data" {
   name = "postgres_data"
 }
 
-# Create PostgreSQL container
+# ----------------------------
+# PostgreSQL container
+# ----------------------------
 resource "docker_container" "postgres_container" {
-  name  = var.postgres_container_name
-  image = docker_image.postgres_image.latest
+  name    = var.postgres_container_name
+  image   = docker_image.postgres_image.image_id
   restart = "always"
 
   networks_advanced {
@@ -47,10 +70,12 @@ resource "docker_container" "postgres_container" {
   }
 }
 
-# Create Node.js app container
+# ----------------------------
+# Node.js app container
+# ----------------------------
 resource "docker_container" "node_app_container" {
-  name  = var.container_name
-  image = docker_image.node_app_image.name
+  name    = var.container_name
+  image   = docker_image.node_app_image.image_id
   restart = "always"
 
   networks_advanced {
@@ -58,7 +83,7 @@ resource "docker_container" "node_app_container" {
   }
 
   dynamic "ports" {
-    for_each = toset(var.exposed_ports)
+    for_each = var.exposed_ports
     content {
       internal = ports.value.internal
       external = ports.value.external
@@ -76,9 +101,11 @@ resource "docker_container" "node_app_container" {
   depends_on = [docker_container.postgres_container]
 }
 
-# Local message after deployment
-output "postgres_connection" {
-  value = "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:${var.postgres_port}/${var.postgres_db}"
+# ----------------------------
+# Outputs
+# ----------------------------
+output "postgres_connection_string" {
+  value     = "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:${var.postgres_port}/${var.postgres_db}"
   sensitive = true
 }
 
