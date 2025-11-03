@@ -22,7 +22,7 @@ terraform {
     access_key                  = "minioadmin"
     secret_key                  = "minioadmin"
 
-    # ✅ Disable all AWS checks
+    # ✅ Disable all AWS checkss
     skip_credentials_validation = true
     skip_metadata_api_check     = true
     skip_requesting_account_id  = true
