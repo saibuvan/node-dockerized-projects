@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG       = "10.0"           // new deployment version
-        OLD_IMAGE_TAG   = "9.0"           // rollback version
+        IMAGE_TAG       = "11.0"
+        OLD_IMAGE_TAG   = "10.0"
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
@@ -11,14 +11,12 @@ pipeline {
         TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
         LOCK_FILE       = "/tmp/terraform.lock"
 
-        // MinIO configuration
         MINIO_ENDPOINT   = "http://localhost:9000"
         MINIO_BUCKET     = "terraform-state"
         MINIO_REGION     = "us-east-1"
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
 
-        // PostgreSQL configuration
         POSTGRES_USER     = "admin"
         POSTGRES_PASSWORD = "admin123"
         POSTGRES_DB       = "node_app_db"
@@ -27,13 +25,12 @@ pipeline {
 
     options {
         timestamps()
-        ansiColor('xterm')
+        // Removed ansiColor option (unsupported on older Jenkins versions)
         catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
     }
 
     stages {
 
-        /* ------------------- GIT CHECKOUT ------------------- */
         stage('Checkout Code') {
             steps {
                 echo "📦 Checking out code from ${GIT_BRANCH}..."
@@ -41,7 +38,6 @@ pipeline {
             }
         }
 
-        /* ------------------- APP PORT DETECTION ------------------- */
         stage('Detect App Port') {
             steps {
                 script {
@@ -55,21 +51,18 @@ pipeline {
             }
         }
 
-        /* ------------------- DEPENDENCIES ------------------- */
         stage('Install Dependencies') {
             steps {
                 sh 'npm install'
             }
         }
 
-        /* ------------------- TESTS ------------------- */
         stage('Run Tests') {
             steps {
                 sh 'npm test || echo "⚠️ Tests failed but continuing..."'
             }
         }
 
-        /* ------------------- DOCKER BUILD & PUSH ------------------- */
         stage('Docker Build & Push') {
             steps {
                 withCredentials([usernamePassword(
@@ -88,7 +81,6 @@ pipeline {
             }
         }
 
-        /* ------------------- PREPARE TERRAFORM DIR ------------------- */
         stage('Prepare Terraform Directory') {
             steps {
                 sh '''
@@ -99,7 +91,6 @@ pipeline {
             }
         }
 
-        /* ------------------- APPROVAL ------------------- */
         stage('Approval for Deployment') {
             when { expression { env.GIT_BRANCH == 'staging' } }
             steps {
@@ -109,7 +100,6 @@ pipeline {
             }
         }
 
-        /* ------------------- TERRAFORM DEPLOYMENT ------------------- */
         stage('Terraform Init & Apply (MinIO Backend)') {
             steps {
                 dir("${TF_DIR}") {
@@ -163,7 +153,6 @@ pipeline {
             }
         }
 
-        /* ------------------- HEALTH CHECK ------------------- */
         stage('Verify Deployment') {
             steps {
                 script {
@@ -183,7 +172,6 @@ pipeline {
         }
     }
 
-    /* ------------------- POST ACTIONS ------------------- */
     post {
         success {
             echo "✅ Deployment successful!"
