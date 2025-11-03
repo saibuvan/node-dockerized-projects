@@ -1,13 +1,13 @@
 terraform {
   backend "s3" {
-    bucket = "terraform-state"
-    key    = "my-node-app/terraform.tfstate"   # path inside bucket
-    region = "us-east-1"
-
-    # Important for MinIO (S3-compatible)
+    bucket                      = "terraform-states"
+    key                         = "state/my-node-app.tfstate"
     endpoint                    = "http://localhost:9000"
-    skip_credentials_validation = true
-    skip_metadata_api_check     = true
-    force_path_style            = true
+    region                      = "us-east-1"
+    access_key                  = "minioadmin"
+    secret_key                  = "minioadmin"
+    skip_credentials_validation  = true
+    skip_metadata_api_check      = true
+    force_path_style             = true
   }
 }

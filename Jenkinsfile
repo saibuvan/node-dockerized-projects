@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG       = "10.0"
-        OLD_IMAGE_TAG   = "9.0"
+        IMAGE_TAG       = "10.0"         // new deployment
+        OLD_IMAGE_TAG   = "9.0"          // rollback version
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
@@ -65,6 +65,7 @@ pipeline {
                     passwordVariable: 'DOCKERHUB_PASSWORD'
                 )]) {
                     sh '''
+                        echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
                         echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
@@ -74,7 +75,7 @@ pipeline {
             }
         }
 
-        stage('Prepare Terraform') {
+        stage('Prepare Terraform Directory') {
             steps {
                 sh '''
                     mkdir -p ${TF_DIR}
@@ -84,7 +85,7 @@ pipeline {
             }
         }
 
-        stage('Approval for Staging') {
+        stage('Approval for Staging Deployment') {
             when { expression { env.GIT_BRANCH == 'staging' } }
             steps {
                 script {
@@ -98,14 +99,14 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            echo "🔒 Checking Terraform lock..."
+                            echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
-                              echo "🚫 Lock exists. Exiting..."
-                              exit 1
+                                echo "🚫 Lock exists. Exiting..."
+                                exit 1
                             fi
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🪣 Configuring Terraform backend with MinIO..."
+                            echo "🪣 Creating backend.tf for MinIO..."
                             cat > backend.tf <<EOF
                             terraform {
                               backend "s3" {
@@ -122,16 +123,16 @@ pipeline {
                             }
                             EOF
 
-                            echo "🔧 Initializing Terraform..."
+                            echo "🔧 Initializing Terraform backend..."
                             terraform init -input=false -reconfigure
 
-                            echo "🚀 Applying Terraform..."
+                            echo "🚀 Running Terraform apply..."
                             terraform apply -auto-approve \
                               -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
                               -var="container_name=my-node-app-container" \
                               -var="host_port=${APP_PORT}"
 
-                            echo "✅ Terraform apply completed."
+                            echo "✅ Terraform apply completed successfully."
                             rm -f "$LOCK_FILE"
                         '''
                     }
@@ -158,11 +159,12 @@ pipeline {
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """App deployed successfully using Terraform with MinIO backend.
 Terraform state stored in MinIO bucket: ${MINIO_BUCKET}
-URL: http://localhost:${APP_PORT}"""
+URL: http://localhost:${APP_PORT}
+Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
-            echo "🚨 Deployment failed! Rolling back..."
+            echo "🚨 Deployment failed! Rolling back to version ${OLD_IMAGE_TAG}..."
             dir("${TF_DIR}") {
                 sh '''
                     terraform init -input=false
@@ -176,8 +178,9 @@ URL: http://localhost:${APP_PORT}"""
 
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rolled back to ${OLD_IMAGE_TAG})",
-                 body: """Build failed and automatically rolled back to ${OLD_IMAGE_TAG}.
-Check Terraform state in MinIO bucket: ${MINIO_BUCKET}."""
+                 body: """Build failed and rolled back to version ${OLD_IMAGE_TAG}.
+Please verify the environment.
+Build URL: ${env.BUILD_URL}"""
         }
 
         always {
