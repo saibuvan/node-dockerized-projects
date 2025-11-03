@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG       = "latest"         // new deployment
+        IMAGE_TAG       = "l0.0"         // new deployment
         OLD_IMAGE_TAG   = "9.0"          // rollback version
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_BRANCH      = "staging"
