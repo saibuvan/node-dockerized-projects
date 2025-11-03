@@ -1,7 +1,7 @@
 variable "docker_image" {
   description = "Docker image to use"
   type        = string
-  default     = "buvan654321/my-node-app:latest"
+  default     = "buvan654321/my-node-app:10.0"
 }
 
 variable "container_name" {
