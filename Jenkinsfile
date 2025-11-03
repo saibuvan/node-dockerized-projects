@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG       = "11.0"
-        OLD_IMAGE_TAG   = "10.0"
+        IMAGE_TAG       = "10.0"
+        OLD_IMAGE_TAG   = "9.0"
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
