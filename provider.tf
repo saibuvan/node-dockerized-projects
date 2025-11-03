@@ -3,7 +3,7 @@ provider "aws" {
   access_key                  = "minioadmin"
   secret_key                  = "minioadmin"
 
-  # ✅ Tell Terraform to use MinIO instead of AWS services
+  # ✅ Tell Terraform to use MinIO instead of AWS servicesss
   endpoints = {
     s3 = "http://localhost:9000"
   }
