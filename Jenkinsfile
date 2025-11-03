@@ -89,7 +89,7 @@ pipeline {
             }
         }
 
-        stage('Clean Existing Container') {
+        stage('Clean Existing Containers') {
             steps {
                 sh '''
                     echo "🧹 Cleaning up existing container..."
