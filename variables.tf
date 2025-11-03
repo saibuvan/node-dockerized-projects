@@ -1,30 +1,57 @@
+# Existing Node.js app variables
 variable "docker_image" {
-  description = "Docker image to use"
-  type        = string
-  default     = "buvan654321/my-node-app:10.0"
+  type    = string
+  default = "buvan654321/my-node-app:10.0"
 }
 
 variable "container_name" {
-  description = "Name of the Docker container"
-  type        = string
-  default     = "my-node-app-container"
+  type    = string
+  default = "my-node-app-container"
 }
 
 variable "host_port" {
-  description = "External port for the Node.js app"
-  type        = number
-  default     = 3000
+  type    = number
+  default = 3000
 }
 
 variable "exposed_ports" {
-  description = "List of ports to expose (app, HTTP, SSH)"
   type = list(object({
     internal = number
     external = number
   }))
   default = [
-    { internal = 3000, external = 3000 }, # Node.js app
-    { internal = 80,   external = 80 },   # HTTP
-    { internal = 22,   external = 22 }    # SSH
+    { internal = 3000, external = 3000 }
   ]
+}
+
+# PostgreSQL variables
+variable "postgres_image" {
+  type    = string
+  default = "postgres:16"
+}
+
+variable "postgres_container_name" {
+  type    = string
+  default = "postgres_container"
+}
+
+variable "postgres_user" {
+  type    = string
+  default = "admin"
+}
+
+variable "postgres_password" {
+  type    = string
+  default = "admin123"
+  sensitive = true
+}
+
+variable "postgres_db" {
+  type    = string
+  default = "node_app_db"
+}
+
+variable "postgres_port" {
+  type    = number
+  default = 5432
 }

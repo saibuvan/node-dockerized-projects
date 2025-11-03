@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_TAG       = "l0.0"         // new deployment
-        OLD_IMAGE_TAG   = "9.0"          // rollback version
+        IMAGE_TAG       = "10.0"           // new deployment version
+        OLD_IMAGE_TAG   = "9.0"           // rollback version
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
@@ -13,25 +13,35 @@ pipeline {
 
         // MinIO configuration
         MINIO_ENDPOINT   = "http://localhost:9000"
-        MINIO_BUCKET     = "terraform-states"
+        MINIO_BUCKET     = "terraform-state"
         MINIO_REGION     = "us-east-1"
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
+
+        // PostgreSQL configuration
+        POSTGRES_USER     = "admin"
+        POSTGRES_PASSWORD = "admin123"
+        POSTGRES_DB       = "node_app_db"
+        POSTGRES_PORT     = "5432"
     }
 
     options {
         timestamps()
+        ansiColor('xterm')
         catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
     }
 
     stages {
 
+        /* ------------------- GIT CHECKOUT ------------------- */
         stage('Checkout Code') {
             steps {
+                echo "📦 Checking out code from ${GIT_BRANCH}..."
                 git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
             }
         }
 
+        /* ------------------- APP PORT DETECTION ------------------- */
         stage('Detect App Port') {
             steps {
                 script {
@@ -40,23 +50,26 @@ pipeline {
                         returnStdout: true
                     ).trim()
                     env.APP_PORT = portLine
-                    echo "📦 Detected Application Port: ${env.APP_PORT}"
+                    echo "🧭 Detected Application Port: ${env.APP_PORT}"
                 }
             }
         }
 
+        /* ------------------- DEPENDENCIES ------------------- */
         stage('Install Dependencies') {
             steps {
                 sh 'npm install'
             }
         }
 
+        /* ------------------- TESTS ------------------- */
         stage('Run Tests') {
             steps {
                 sh 'npm test || echo "⚠️ Tests failed but continuing..."'
             }
         }
 
+        /* ------------------- DOCKER BUILD & PUSH ------------------- */
         stage('Docker Build & Push') {
             steps {
                 withCredentials([usernamePassword(
@@ -75,6 +88,7 @@ pipeline {
             }
         }
 
+        /* ------------------- PREPARE TERRAFORM DIR ------------------- */
         stage('Prepare Terraform Directory') {
             steps {
                 sh '''
@@ -85,15 +99,17 @@ pipeline {
             }
         }
 
-        stage('Approval for Staging Deployment') {
+        /* ------------------- APPROVAL ------------------- */
+        stage('Approval for Deployment') {
             when { expression { env.GIT_BRANCH == 'staging' } }
             steps {
                 script {
-                    input message: "Deploy to STAGING environment?", ok: "Approve Deployment"
+                    input message: "🚀 Deploy to STAGING environment?", ok: "Approve Deployment"
                 }
             }
         }
 
+        /* ------------------- TERRAFORM DEPLOYMENT ------------------- */
         stage('Terraform Init & Apply (MinIO Backend)') {
             steps {
                 dir("${TF_DIR}") {
@@ -106,31 +122,38 @@ pipeline {
                             fi
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🪣 Creating backend.tf for MinIO..."
+                            echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
                             terraform {
                               backend "s3" {
                                 bucket                      = "${MINIO_BUCKET}"
                                 key                         = "state/${JOB_NAME}.tfstate"
-                                endpoint                    = "${MINIO_ENDPOINT}"
                                 region                      = "${MINIO_REGION}"
+                                endpoints = {
+                                  s3 = "${MINIO_ENDPOINT}"
+                                }
                                 access_key                  = "${MINIO_ACCESS_KEY}"
                                 secret_key                  = "${MINIO_SECRET_KEY}"
                                 skip_credentials_validation  = true
                                 skip_metadata_api_check      = true
+                                skip_requesting_account_id   = true
                                 force_path_style             = true
                               }
                             }
                             EOF
 
-                            echo "🔧 Initializing Terraform backend..."
+                            echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
-                            echo "🚀 Running Terraform apply..."
+                            echo "🚀 Applying Terraform (Node.js + PostgreSQL)..."
                             terraform apply -auto-approve \
                               -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
                               -var="container_name=my-node-app-container" \
-                              -var="host_port=${APP_PORT}"
+                              -var="host_port=${APP_PORT}" \
+                              -var="postgres_user=${POSTGRES_USER}" \
+                              -var="postgres_password=${POSTGRES_PASSWORD}" \
+                              -var="postgres_db=${POSTGRES_DB}" \
+                              -var="postgres_port=${POSTGRES_PORT}"
 
                             echo "✅ Terraform apply completed successfully."
                             rm -f "$LOCK_FILE"
@@ -140,24 +163,33 @@ pipeline {
             }
         }
 
+        /* ------------------- HEALTH CHECK ------------------- */
         stage('Verify Deployment') {
             steps {
-                sh """
-                    echo "⏳ Waiting for app to start..."
-                    sleep 10
-                    echo "🔍 Checking app health..."
-                    curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
-                """
+                script {
+                    sh """
+                        echo "🕓 Waiting for PostgreSQL to initialize..."
+                        sleep 10
+                        echo "🔍 Checking PostgreSQL status..."
+                        docker exec postgres_container pg_isready -U ${POSTGRES_USER} || echo "⚠️ Postgres not ready yet."
+                        
+                        echo "⏳ Waiting for Node.js app to start..."
+                        sleep 10
+                        echo "🔍 Checking app health..."
+                        curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
+                    """
+                }
             }
         }
     }
 
+    /* ------------------- POST ACTIONS ------------------- */
     post {
         success {
             echo "✅ Deployment successful!"
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """App deployed successfully using Terraform with MinIO backend.
+                 body: """App deployed successfully using Terraform with PostgreSQL & MinIO backend.
 Terraform state stored in MinIO bucket: ${MINIO_BUCKET}
 URL: http://localhost:${APP_PORT}
 Build URL: ${env.BUILD_URL}"""
@@ -184,7 +216,7 @@ Build URL: ${env.BUILD_URL}"""
         }
 
         always {
-            echo "🧹 Cleaning up lock file..."
+            echo "🧹 Cleaning up Terraform lock..."
             sh 'rm -f /tmp/terraform.lock || true'
         }
     }
