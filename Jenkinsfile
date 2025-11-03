@@ -27,6 +27,25 @@ pipeline {
             }
         }
 
+        stage('Fix Docker Permissions') {
+            steps {
+                sh '''#!/bin/bash
+                    echo "🔧 Checking Docker socket permissions..."
+                    if ! docker ps >/dev/null 2>&1; then
+                        echo "⚠️ Jenkins user cannot access Docker socket. Fixing permissions..."
+                        if [ -S /var/run/docker.sock ]; then
+                            sudo chmod 666 /var/run/docker.sock || true
+                        else
+                            echo "🚫 Docker socket not found at /var/run/docker.sock"
+                            exit 1
+                        fi
+                    else
+                        echo "✅ Docker socket access verified."
+                    fi
+                '''
+            }
+        }
+
         stage('Detect App Port from Dockerfile') {
             steps {
                 script {
@@ -34,7 +53,6 @@ pipeline {
                         script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2 || echo ''",
                         returnStdout: true
                     ).trim()
-
                     env.APP_PORT = portLine ?: "3000"
                     echo "📦 Detected Application Port: ${env.APP_PORT}"
                 }
