@@ -11,10 +11,10 @@ pipeline {
         TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
         LOCK_FILE       = "/tmp/terraform.lock"
 
-        # MinIO configuration
-        MINIO_ENDPOINT  = "http://localhost:9000"
-        MINIO_BUCKET    = "terraform-states"
-        MINIO_REGION    = "us-east-1"
+        // MinIO configuration
+        MINIO_ENDPOINT   = "http://localhost:9000"
+        MINIO_BUCKET     = "terraform-states"
+        MINIO_REGION     = "us-east-1"
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
     }
