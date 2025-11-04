@@ -86,5 +86,5 @@ variable "pgadmin_password" {
 
 variable "pgadmin_port" {
   type    = number
-  default = 8030
+  default = 8031
 }
