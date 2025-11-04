@@ -1,6 +1,3 @@
-# ========================
-# Node.js Application Vars
-# ========================
 variable "docker_image" {
   type    = string
   default = "buvan654321/my-node-app:10.0"
@@ -26,9 +23,6 @@ variable "exposed_ports" {
   ]
 }
 
-# ========================
-# PostgreSQL Vars
-# ========================
 variable "postgres_image" {
   type    = string
   default = "postgres:16"
@@ -60,9 +54,6 @@ variable "postgres_port" {
   default = 5432
 }
 
-# ========================
-# pgAdmin Vars (NEW)
-# ========================
 variable "pgadmin_image" {
   type    = string
   default = "dpage/pgadmin4:latest"
