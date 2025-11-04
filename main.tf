@@ -21,7 +21,7 @@ resource "docker_network" "app_network" {
 # Pull Node.js app image
 # ----------------------------
 resource "docker_image" "node_app_image" {
-  name = var.docker_image
+  name         = var.docker_image
   keep_locally = false
 }
 
@@ -71,6 +71,52 @@ resource "docker_container" "postgres_container" {
 }
 
 # ----------------------------
+# Pull pgAdmin image
+# ----------------------------
+resource "docker_image" "pgadmin_image" {
+  name         = var.pgadmin_image
+  keep_locally = false
+}
+
+# ----------------------------
+# Persistent volume for pgAdmin
+# ----------------------------
+resource "docker_volume" "pgadmin_data" {
+  name = "pgadmin_data"
+}
+
+# ----------------------------
+# pgAdmin container
+# ----------------------------
+resource "docker_container" "pgadmin_container" {
+  name    = var.pgadmin_container_name
+  image   = docker_image.pgadmin_image.image_id
+  restart = "always"
+
+  networks_advanced {
+    name = docker_network.app_network.name
+  }
+
+  env = [
+    "PGADMIN_DEFAULT_EMAIL=${var.pgadmin_email}",
+    "PGADMIN_DEFAULT_PASSWORD=${var.pgadmin_password}"
+  ]
+
+  ports {
+    internal = 80
+    external = var.pgadmin_port
+  }
+
+  mounts {
+    target = "/var/lib/pgadmin"
+    source = docker_volume.pgadmin_data.name
+    type   = "volume"
+  }
+
+  depends_on = [docker_container.postgres_container]
+}
+
+# ----------------------------
 # Node.js app container
 # ----------------------------
 resource "docker_container" "node_app_container" {
@@ -107,6 +153,10 @@ resource "docker_container" "node_app_container" {
 output "postgres_connection_string" {
   value     = "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:${var.postgres_port}/${var.postgres_db}"
   sensitive = true
+}
+
+output "pgadmin_url" {
+  value = "http://localhost:${var.pgadmin_port}"
 }
 
 output "app_url" {
