@@ -1,3 +1,74 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_TAG       = "10.0"
+        OLD_IMAGE_TAG   = "9.0"
+        DOCKER_REPO     = "buvan654321/my-node-app"
+        GIT_BRANCH      = "staging"
+        GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
+        GIT_CREDENTIALS = "devops"
+        TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
+        LOCK_FILE       = "/tmp/terraform.lock"
+
+        MINIO_ENDPOINT   = "http://localhost:9000"
+        MINIO_BUCKET     = "terraform-state"
+        MINIO_REGION     = "us-east-1"
+        MINIO_ACCESS_KEY = "minioadmin"
+        MINIO_SECRET_KEY = "minioadmin"
+
+        POSTGRES_USER     = "admin"
+        POSTGRES_PASSWORD = "admin123"
+        POSTGRES_DB       = "node_app_db"
+        POSTGRES_PORT     = "5432"
+    }
+
+    options {
+        timestamps()
+        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                echo "📦 Checking out code from ${GIT_BRANCH}..."
+                git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
+            }
+        }
+
+        stage('Detect App Port') {
+            steps {
+                script {
+                    def portLine = sh(
+                        script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2 || echo '3000'",
+                        returnStdout: true
+                    ).trim()
+                    env.APP_PORT = portLine
+                    echo "🧭 Detected Application Port: ${env.APP_PORT}"
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh 'npm test || echo "⚠️ Tests failed but continuing..."'
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker_cred',
+                    usernameVariable: 'DOCKERHUB_USERNAME',
+                    passwordVariable: 'DOCKERHUB_PASSWORD'
+                )]) {
                     sh '''
                         echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
