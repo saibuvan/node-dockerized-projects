@@ -8,8 +8,8 @@ pipeline {
         GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
-        TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
-        LOCK_FILE       = "/tmp/terraform.lock"
+        TF_DIR          = "${WORKSPACE}/terraform"
+        LOCK_FILE       = "${WORKSPACE}/terraform.lock"
 
         MINIO_ENDPOINT   = "http://localhost:9000"
         MINIO_BUCKET     = "terraform-state"
@@ -80,7 +80,7 @@ pipeline {
                 sh '''
                     mkdir -p ${TF_DIR}
                     cp -r terraform/* ${TF_DIR}/ || true
-                    chown -R jenkins:jenkins ${TF_DIR}
+                    chown -R $(whoami):$(whoami) ${TF_DIR}
                 '''
             }
         }
@@ -99,12 +99,12 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            # Check and handle stale lock
+                            echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=$(($(date +%s) - $(stat -c %Y $LOCK_FILE)))
+                                FILE_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
                                 if [ $FILE_AGE -gt 600 ]; then
                                     echo "🧹 Removing stale lock file..."
-                                    rm -f "$LOCK_FILE" || echo "⚠️ Could not remove lock file, check permissions"
+                                    rm -f "$LOCK_FILE" || echo "⚠️ Could not remove lock file"
                                 else
                                     echo "🚫 Lock exists. Another deployment is running!"
                                     exit 1
@@ -113,22 +113,21 @@ pipeline {
 
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
                             chmod 664 "$LOCK_FILE"
-                            chown jenkins:jenkins "$LOCK_FILE"
 
                             echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
-    bucket                      = "${MINIO_BUCKET}"
-    key                         = "state/${JOB_NAME}.tfstate"
-    region                      = "${MINIO_REGION}"
+    bucket  = "${MINIO_BUCKET}"
+    key     = "state/${JOB_NAME}.tfstate"
+    region  = "${MINIO_REGION}"
     endpoints = { s3 = "${MINIO_ENDPOINT}" }
-    access_key                  = "${MINIO_ACCESS_KEY}"
-    secret_key                  = "${MINIO_SECRET_KEY}"
+    access_key = "${MINIO_ACCESS_KEY}"
+    secret_key = "${MINIO_SECRET_KEY}"
     skip_credentials_validation = true
-    skip_metadata_api_check     = true
-    skip_requesting_account_id  = true
-    use_path_style              = true
+    skip_metadata_api_check = true
+    skip_requesting_account_id = true
+    use_path_style = true
   }
 }
 EOF
@@ -154,8 +153,8 @@ EOF
                         echo "🕓 Waiting for PostgreSQL to initialize..."
                         sleep 10
                         echo "🔍 Checking PostgreSQL status..."
-                        docker exec postgres_container pg_isready -U \$(terraform output -raw postgres_user) || echo "⚠️ Postgres not ready yet."
-
+                        docker exec postgres_container pg_isready -U admin || echo "⚠️ Postgres not ready yet."
+                        
                         echo "⏳ Waiting for Node.js app to start..."
                         sleep 10
                         echo "🔍 Checking app health..."
@@ -178,25 +177,24 @@ Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
-            echo "🚨 Deployment failed! Rolling back..."
+            echo "🚨 Deployment failed! Rolling back to previous version..."
             dir("${TF_DIR}") {
                 sh '''
                     terraform init -reconfigure
-                    terraform apply -auto-approve
+                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}"
                     echo "✅ Rollback completed."
                 '''
             }
 
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """Build failed.
-Please verify the environment.
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rollback Applied)",
+                 body: """Build failed. Rollback applied.
 Build URL: ${env.BUILD_URL}"""
         }
 
         always {
             echo "🧹 Cleaning up Terraform lock..."
-            sh 'rm -f /tmp/terraform.lock || true'
+            sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
 }
