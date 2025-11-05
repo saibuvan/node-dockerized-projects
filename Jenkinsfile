@@ -104,7 +104,7 @@ pipeline {
                                 FILE_AGE=$(($(date +%s) - $(stat -c %Y $LOCK_FILE)))
                                 if [ $FILE_AGE -gt 600 ]; then
                                     echo "🧹 Removing stale lock file..."
-                                    sudo rm -f "$LOCK_FILE" || echo "⚠️ Could not remove lock file, check permissions"
+                                    rm -f "$LOCK_FILE" || echo "⚠️ Could not remove lock file, check permissions"
                                 else
                                     echo "🚫 Lock exists. Another deployment is running!"
                                     exit 1
@@ -112,8 +112,8 @@ pipeline {
                             fi
 
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
-                            sudo chmod 664 "$LOCK_FILE"
-                            sudo chown jenkins:jenkins "$LOCK_FILE"
+                            chmod 664 "$LOCK_FILE"
+                            chown jenkins:jenkins "$LOCK_FILE"
 
                             echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
@@ -196,7 +196,7 @@ Build URL: ${env.BUILD_URL}"""
 
         always {
             echo "🧹 Cleaning up Terraform lock..."
-            sh 'sudo rm -f /tmp/terraform.lock || true'
+            sh 'rm -f /tmp/terraform.lock || true'
         }
     }
 }
