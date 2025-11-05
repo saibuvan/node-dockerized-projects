@@ -1,75 +1,3 @@
-pipeline {
-    agent any
-
-    environment {
-        IMAGE_TAG       = "10.0"
-        OLD_IMAGE_TAG   = "9.0"
-        DOCKER_REPO     = "buvan654321/my-node-app"
-        GIT_BRANCH      = "staging"
-        GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
-        GIT_CREDENTIALS = "devops"
-        TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
-        LOCK_FILE       = "/tmp/terraform.lock"
-
-        MINIO_ENDPOINT   = "http://localhost:9000"
-        MINIO_BUCKET     = "terraform-state"
-        MINIO_REGION     = "us-east-1"
-        MINIO_ACCESS_KEY = "minioadmin"
-        MINIO_SECRET_KEY = "minioadmin"
-
-        POSTGRES_USER     = "admin"
-        POSTGRES_PASSWORD = "admin123"
-        POSTGRES_DB       = "node_app_db"
-        POSTGRES_PORT     = "5432"
-    }
-
-    options {
-        timestamps()
-        // Removed ansiColor option (unsupported on older Jenkins versions)
-        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
-    }
-
-    stages {
-
-        stage('Checkout Code') {
-            steps {
-                echo "📦 Checking out code from ${GIT_BRANCH}..."
-                git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
-            }
-        }
-
-        stage('Detect App Port') {
-            steps {
-                script {
-                    def portLine = sh(
-                        script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2 || echo '3000'",
-                        returnStdout: true
-                    ).trim()
-                    env.APP_PORT = portLine
-                    echo "🧭 Detected Application Port: ${env.APP_PORT}"
-                }
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
-                sh 'npm install'
-            }
-        }
-
-        stage('Run Tests') {
-            steps {
-                sh 'npm test || echo "⚠️ Tests failed but continuing..."'
-            }
-        }
-
-        stage('Docker Build & Push') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker_cred',
-                    usernameVariable: 'DOCKERHUB_USERNAME',
-                    passwordVariable: 'DOCKERHUB_PASSWORD'
-                )]) {
                     sh '''
                         echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
@@ -105,35 +33,41 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            echo "🔍 Checking for existing Terraform lock..."
+                            # 🔍 Handle stale lock
                             if [ -f "$LOCK_FILE" ]; then
-                                echo "🚫 Lock exists. Exiting..."
-                                exit 1
+                                FILE_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE") ))
+                                if [ "$FILE_AGE" -gt 600 ]; then
+                                    echo "🧹 Removing stale lock file..."
+                                    rm -f "$LOCK_FILE"
+                                else
+                                    echo "🚫 Lock exists. Another deployment may be running."
+                                    exit 1
+                                fi
                             fi
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🪣 Writing backend.tf..."
+                            # 🪣 Write backend.tf with updated parameter
                             cat > backend.tf <<EOF
-                            terraform {
-                              backend "s3" {
-                                bucket                      = "${MINIO_BUCKET}"
-                                key                         = "state/${JOB_NAME}.tfstate"
-                                region                      = "${MINIO_REGION}"
-                                endpoints = {
-                                  s3 = "${MINIO_ENDPOINT}"
-                                }
-                                access_key                  = "${MINIO_ACCESS_KEY}"
-                                secret_key                  = "${MINIO_SECRET_KEY}"
-                                skip_credentials_validation  = true
-                                skip_metadata_api_check      = true
-                                skip_requesting_account_id   = true
-                                use_path_style               = true
-                              }
-                            }
-                            EOF
+terraform {
+  backend "s3" {
+    bucket                      = "${MINIO_BUCKET}"
+    key                         = "state/${JOB_NAME}.tfstate"
+    region                      = "${MINIO_REGION}"
+    endpoints = {
+      s3 = "${MINIO_ENDPOINT}"
+    }
+    access_key                  = "${MINIO_ACCESS_KEY}"
+    secret_key                  = "${MINIO_SECRET_KEY}"
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+    use_path_style              = true
+  }
+}
+EOF
 
                             echo "🧩 Initializing Terraform..."
-                            terraform init -input=false -reconfigure
+                            terraform init -reconfigure
 
                             echo "🚀 Applying Terraform (Node.js + PostgreSQL)..."
                             terraform apply -auto-approve \
@@ -161,7 +95,7 @@ pipeline {
                         sleep 10
                         echo "🔍 Checking PostgreSQL status..."
                         docker exec postgres_container pg_isready -U ${POSTGRES_USER} || echo "⚠️ Postgres not ready yet."
-                        
+
                         echo "⏳ Waiting for Node.js app to start..."
                         sleep 10
                         echo "🔍 Checking app health..."
@@ -187,7 +121,7 @@ Build URL: ${env.BUILD_URL}"""
             echo "🚨 Deployment failed! Rolling back to version ${OLD_IMAGE_TAG}..."
             dir("${TF_DIR}") {
                 sh '''
-                    terraform init -input=false
+                    terraform init
                     terraform apply -auto-approve \
                       -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}" \
                       -var="container_name=my-node-app-container" \
