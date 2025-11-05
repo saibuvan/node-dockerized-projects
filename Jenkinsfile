@@ -9,7 +9,7 @@ pipeline {
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
         TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
-        LOCK_FILE       = "/tmp/terraform.lock"
+        LOCK_FILE       = "${WORKSPACE}/terraform.lock"
 
         MINIO_ENDPOINT   = "http://localhost:9000"
         MINIO_BUCKET     = "terraform-state"
@@ -104,7 +104,7 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            # 🔍 Handle stale lock
+                            echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
                                 FILE_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE") ))
                                 if [ "$FILE_AGE" -gt 600 ]; then
@@ -115,9 +115,12 @@ pipeline {
                                     exit 1
                                 fi
                             fi
-                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            # 🪣 Write backend.tf with updated parameter
+                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
+                            chmod 664 "$LOCK_FILE"
+                            chown jenkins:jenkins "$LOCK_FILE"
+
+                            echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -129,10 +132,10 @@ terraform {
     }
     access_key                  = "${MINIO_ACCESS_KEY}"
     secret_key                  = "${MINIO_SECRET_KEY}"
-    skip_credentials_validation = true
-    skip_metadata_api_check     = true
-    skip_requesting_account_id  = true
-    use_path_style              = true
+    skip_credentials_validation  = true
+    skip_metadata_api_check      = true
+    skip_requesting_account_id   = true
+    use_path_style               = true
   }
 }
 EOF
@@ -166,7 +169,7 @@ EOF
                         sleep 10
                         echo "🔍 Checking PostgreSQL status..."
                         docker exec postgres_container pg_isready -U ${POSTGRES_USER} || echo "⚠️ Postgres not ready yet."
-
+                        
                         echo "⏳ Waiting for Node.js app to start..."
                         sleep 10
                         echo "🔍 Checking app health..."
@@ -210,7 +213,7 @@ Build URL: ${env.BUILD_URL}"""
 
         always {
             echo "🧹 Cleaning up Terraform lock..."
-            sh 'rm -f /tmp/terraform.lock || true'
+            sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
 }
