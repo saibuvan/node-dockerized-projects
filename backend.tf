@@ -6,7 +6,7 @@ terraform {
     endpoints = {
       s3 = "http://localhost:9000"
     }
-#servie files server things mks ser
+#servie files server things mks serve
     access_key                  = "minioadmin"
     secret_key                  = "minioadmin"
 
