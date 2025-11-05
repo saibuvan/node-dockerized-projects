@@ -9,18 +9,13 @@ pipeline {
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
         TF_DIR          = "/opt/jenkins_projects/node-dockerized-projects/terraform"
-        LOCK_FILE       = "${WORKSPACE}/terraform.lock"
+        LOCK_FILE       = "/tmp/terraform.lock"
 
         MINIO_ENDPOINT   = "http://localhost:9000"
         MINIO_BUCKET     = "terraform-state"
         MINIO_REGION     = "us-east-1"
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
-
-        POSTGRES_USER     = "admin"
-        POSTGRES_PASSWORD = "admin123"
-        POSTGRES_DB       = "node_app_db"
-        POSTGRES_PORT     = "5432"
     }
 
     options {
@@ -104,21 +99,21 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            echo "🔍 Checking for existing Terraform lock..."
+                            # Check and handle stale lock
                             if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE") ))
-                                if [ "$FILE_AGE" -gt 600 ]; then
+                                FILE_AGE=$(($(date +%s) - $(stat -c %Y $LOCK_FILE)))
+                                if [ $FILE_AGE -gt 600 ]; then
                                     echo "🧹 Removing stale lock file..."
-                                    rm -f "$LOCK_FILE"
+                                    sudo rm -f "$LOCK_FILE" || echo "⚠️ Could not remove lock file, check permissions"
                                 else
-                                    echo "🚫 Lock exists. Another deployment may be running."
+                                    echo "🚫 Lock exists. Another deployment is running!"
                                     exit 1
                                 fi
                             fi
 
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
-                            chmod 664 "$LOCK_FILE"
-                            chown jenkins:jenkins "$LOCK_FILE"
+                            sudo chmod 664 "$LOCK_FILE"
+                            sudo chown jenkins:jenkins "$LOCK_FILE"
 
                             echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
@@ -127,15 +122,13 @@ terraform {
     bucket                      = "${MINIO_BUCKET}"
     key                         = "state/${JOB_NAME}.tfstate"
     region                      = "${MINIO_REGION}"
-    endpoints = {
-      s3 = "${MINIO_ENDPOINT}"
-    }
+    endpoints = { s3 = "${MINIO_ENDPOINT}" }
     access_key                  = "${MINIO_ACCESS_KEY}"
     secret_key                  = "${MINIO_SECRET_KEY}"
-    skip_credentials_validation  = true
-    skip_metadata_api_check      = true
-    skip_requesting_account_id   = true
-    use_path_style               = true
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+    use_path_style              = true
   }
 }
 EOF
@@ -143,15 +136,8 @@ EOF
                             echo "🧩 Initializing Terraform..."
                             terraform init -reconfigure
 
-                            echo "🚀 Applying Terraform (Node.js + PostgreSQL)..."
-                            terraform apply -auto-approve \
-                              -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
-                              -var="container_name=my-node-app-container" \
-                              -var="host_port=${APP_PORT}" \
-                              -var="postgres_user=${POSTGRES_USER}" \
-                              -var="postgres_password=${POSTGRES_PASSWORD}" \
-                              -var="postgres_db=${POSTGRES_DB}" \
-                              -var="postgres_port=${POSTGRES_PORT}"
+                            echo "🚀 Applying Terraform..."
+                            terraform apply -auto-approve
 
                             echo "✅ Terraform apply completed successfully."
                             rm -f "$LOCK_FILE"
@@ -168,8 +154,8 @@ EOF
                         echo "🕓 Waiting for PostgreSQL to initialize..."
                         sleep 10
                         echo "🔍 Checking PostgreSQL status..."
-                        docker exec postgres_container pg_isready -U ${POSTGRES_USER} || echo "⚠️ Postgres not ready yet."
-                        
+                        docker exec postgres_container pg_isready -U \$(terraform output -raw postgres_user) || echo "⚠️ Postgres not ready yet."
+
                         echo "⏳ Waiting for Node.js app to start..."
                         sleep 10
                         echo "🔍 Checking app health..."
@@ -192,28 +178,25 @@ Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
-            echo "🚨 Deployment failed! Rolling back to version ${OLD_IMAGE_TAG}..."
+            echo "🚨 Deployment failed! Rolling back..."
             dir("${TF_DIR}") {
                 sh '''
-                    terraform init
-                    terraform apply -auto-approve \
-                      -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}" \
-                      -var="container_name=my-node-app-container" \
-                      -var="host_port=${APP_PORT}"
-                    echo "✅ Rollback completed to version ${OLD_IMAGE_TAG}."
+                    terraform init -reconfigure
+                    terraform apply -auto-approve
+                    echo "✅ Rollback completed."
                 '''
             }
 
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rolled back to ${OLD_IMAGE_TAG})",
-                 body: """Build failed and rolled back to version ${OLD_IMAGE_TAG}.
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """Build failed.
 Please verify the environment.
 Build URL: ${env.BUILD_URL}"""
         }
 
         always {
             echo "🧹 Cleaning up Terraform lock..."
-            sh 'rm -f "${LOCK_FILE}" || true'
+            sh 'sudo rm -f /tmp/terraform.lock || true'
         }
     }
 }
