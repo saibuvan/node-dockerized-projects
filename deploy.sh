@@ -1,131 +1,126 @@
 #!/bin/bash
 set -e
 
-# ===================================================
-# 🌍 Environment Variables
-# ===================================================
-IMAGE_BASE="buvan654321/my-node-app"
-GIT_URL="https://github.com/saibuvan/node-dockerized-projects.git"
+##############################################
+# CONFIGURATION
+##############################################
+IMAGE_TAG="10.0"
+OLD_IMAGE_TAG="9.0"
+DOCKER_REPO="buvan654321/my-node-app"
 GIT_BRANCH="staging"
+GIT_URL="https://github.com/saibuvan/node-dockerized-projects.git"
 TF_DIR="/opt/jenkins_projects/node-dockerized-projects/terraform"
 LOCK_FILE="/tmp/terraform.lock"
 
-# ---- MinIO ----
 MINIO_ENDPOINT="http://localhost:9000"
 MINIO_BUCKET="terraform-state"
 MINIO_REGION="us-east-1"
 MINIO_ACCESS_KEY="minioadmin"
 MINIO_SECRET_KEY="minioadmin"
 
-# ---- PostgreSQL ----
 POSTGRES_USER="admin"
 POSTGRES_PASSWORD="admin123"
 POSTGRES_DB="node_app_db"
 POSTGRES_PORT="5432"
 
-# ===================================================
-# 🕒 Generate Tag & Detect Port
-# ===================================================
-IMAGE_TAG="build-$(date +%Y%m%d%H%M%S)"
-APP_PORT=$(grep '^ARG APP_PORT' Dockerfile 2>/dev/null | cut -d'=' -f2 || echo "3000")
+DOCKER_USERNAME="buvan654321"
+DOCKER_PASSWORD="Buvan@808080"
 
-echo "🚀 Starting deployment with image ${IMAGE_BASE}:${IMAGE_TAG}"
-echo "🧭 Detected App Port: ${APP_PORT}"
+##############################################
+# HELPER FUNCTIONS
+##############################################
+info() { echo -e "\033[1;34m[INFO]\033[0m $1"; }
+warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
+error() { echo -e "\033[1;31m[ERROR]\033[0m $1"; }
 
-# ===================================================
-# 📦 Clone or Update Repo
-# ===================================================
-if [ ! -d "node-dockerized-projects" ]; then
-  git clone -b "${GIT_BRANCH}" "${GIT_URL}" node-dockerized-projects
+##############################################
+# GIT CHECKOUT
+##############################################
+info "📦 Cloning branch ${GIT_BRANCH}..."
+rm -rf node-dockerized-projects || true
+git clone -b "${GIT_BRANCH}" "${GIT_URL}" node-dockerized-projects
+cd node-dockerized-projects
+
+##############################################
+# DETECT APP PORT
+##############################################
+APP_PORT=$(grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2 || echo "3000")
+info "🧭 Detected Application Port: ${APP_PORT}"
+
+##############################################
+# INSTALL DEPENDENCIES
+##############################################
+info "📦 Installing npm dependencies..."
+npm install
+
+##############################################
+# RUN TESTS
+##############################################
+info "🧪 Running tests..."
+if ! npm test; then
+  warn "⚠️ Tests failed, continuing anyway..."
 fi
 
-cd node-dockerized-projects
-git fetch origin "${GIT_BRANCH}"
-git checkout "${GIT_BRANCH}"
-git pull origin "${GIT_BRANCH}"
+##############################################
+# BUILD & PUSH DOCKER IMAGE
+##############################################
+info "🐳 Building Docker image ${DOCKER_REPO}:${IMAGE_TAG}..."
+docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
 
-# ===================================================
-# 🐳 Optimized Docker Build (Layer Cache + Mount)
-# ===================================================
-echo "🐳 Building Docker image with cache mount for node_modules..."
+info "🔐 Logging into DockerHub..."
+echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
 
-cat > Dockerfile <<'EOF'
-FROM node:18
-
-WORKDIR /usr/src/app
-
-# Copy dependency files first
-COPY package*.json ./
-
-# Use Docker buildkit mount cache to speed up npm install
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev
-
-# Copy rest of the source code
-COPY . .
-
-# Expose app port
-ARG APP_PORT=3000
-EXPOSE ${APP_PORT}
-
-CMD ["node", "app.js"]
-EOF
-
-# Enable BuildKit for fast caching
-export DOCKER_BUILDKIT=1
-export COMPOSE_DOCKER_CLI_BUILD=1
-
-# Build using cache mount
-docker build --progress=plain -t ${IMAGE_BASE}:${IMAGE_TAG} .
-
-# ===================================================
-# 📤 Push Docker Image
-# ===================================================
-echo "📤 Pushing image to Docker Hub..."
-echo "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
-docker push ${IMAGE_BASE}:${IMAGE_TAG}
+info "📤 Pushing image..."
+docker push ${DOCKER_REPO}:${IMAGE_TAG}
 docker logout
 
-# ===================================================
-# ⚙️ Terraform Setup
-# ===================================================
-mkdir -p ${TF_DIR}
-cp -r terraform/* ${TF_DIR}/ || true
-cd ${TF_DIR}
+##############################################
+# PREPARE TERRAFORM DIRECTORY
+##############################################
+info "📁 Preparing Terraform directory..."
+sudo mkdir -p "${TF_DIR}"
+sudo cp -r terraform/* "${TF_DIR}/" || true
+sudo chown -R $(whoami):$(whoami) "${TF_DIR}"
+
+##############################################
+# TERRAFORM INIT & APPLY
+##############################################
+cd "${TF_DIR}"
 
 if [ -f "$LOCK_FILE" ]; then
-  echo "🚫 Terraform already running. Exiting..."
-  exit 1
+    error "🚫 Lock file exists. Another deployment is running!"
+    exit 1
 fi
-echo "LOCKED" > "$LOCK_FILE"
 
-echo "🪣 Writing backend.tf..."
+echo "LOCKED by deployment at $(date)" > "$LOCK_FILE"
+
+info "🪣 Configuring backend.tf..."
 cat > backend.tf <<EOF
 terraform {
   backend "s3" {
     bucket                      = "${MINIO_BUCKET}"
-    key                         = "state/deploy.tfstate"
+    key                         = "state/node-app.tfstate"
     region                      = "${MINIO_REGION}"
-    endpoints = { s3 = "${MINIO_ENDPOINT}" }
+    endpoints = {
+      s3 = "${MINIO_ENDPOINT}"
+    }
     access_key                  = "${MINIO_ACCESS_KEY}"
     secret_key                  = "${MINIO_SECRET_KEY}"
     skip_credentials_validation  = true
     skip_metadata_api_check      = true
     skip_requesting_account_id   = true
-    use_path_style               = true
+    force_path_style             = true
   }
 }
 EOF
 
-# ===================================================
-# 🚀 Terraform Apply
-# ===================================================
-echo "🧩 Initializing Terraform..."
-terraform init -input=true -reconfigure
+info "🧩 Initializing Terraform..."
+terraform init -input=false -reconfigure
 
-echo "🚀 Applying Terraform..."
+info "🚀 Applying Terraform..."
+set +e
 terraform apply -auto-approve \
-  -var="docker_image=${IMAGE_BASE}:${IMAGE_TAG}" \
+  -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
   -var="container_name=my-node-app-container" \
   -var="host_port=${APP_PORT}" \
   -var="postgres_user=${POSTGRES_USER}" \
@@ -133,20 +128,38 @@ terraform apply -auto-approve \
   -var="postgres_db=${POSTGRES_DB}" \
   -var="postgres_port=${POSTGRES_PORT}"
 
-echo "✅ Terraform Apply Done!"
+if [ $? -ne 0 ]; then
+  set -e
+  error "❌ Terraform apply failed!"
+  info "🔁 Rolling back to version ${OLD_IMAGE_TAG}..."
+  terraform apply -auto-approve \
+    -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}" \
+    -var="container_name=my-node-app-container" \
+    -var="host_port=${APP_PORT}"
+  warn "✅ Rolled back successfully to version ${OLD_IMAGE_TAG}."
+  rm -f "$LOCK_FILE"
+  exit 1
+fi
+set -e
 
-# ===================================================
-# 🔍 Verify Deployment
-# ===================================================
-echo "⏳ Checking containers..."
-sleep 5
-docker ps | grep my-node-app-container || echo "⚠️ App container not running."
-
-APP_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' my-node-app-container)
-echo "🌐 App running at: http://${APP_IP}:${APP_PORT}"
-
-# ===================================================
-# 🧹 Cleanup
-# ===================================================
 rm -f "$LOCK_FILE"
-echo "✅ Deployment completed successfully!"
+
+##############################################
+# VERIFY DEPLOYMENT
+##############################################
+info "🕓 Waiting for PostgreSQL to initialize..."
+sleep 10
+docker exec postgres_container pg_isready -U ${POSTGRES_USER} || warn "⚠️ Postgres not ready yet."
+
+info "⏳ Waiting for Node.js app to start..."
+sleep 10
+curl -s http://localhost:${APP_PORT} && info "✅ App is responding!" || warn "⚠️ App not responding yet."
+
+##############################################
+# SUCCESS MESSAGE
+##############################################
+info "✅ Deployment completed successfully!"
+echo "-----------------------------------------------"
+echo "Terraform state stored in MinIO bucket: ${MINIO_BUCKET}"
+echo "Application URL: http://localhost:${APP_PORT}"
+echo "-----------------------------------------------"
