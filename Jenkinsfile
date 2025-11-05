@@ -135,8 +135,8 @@ EOF
                             echo "🧩 Initializing Terraform..."
                             terraform init -reconfigure
 
-                            echo "🚀 Applying Terraform..."
-                            terraform apply -auto-approve
+                            echo "🚀 Applying Terraform (IMAGE_TAG=${IMAGE_TAG})..."
+                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
 
                             echo "✅ Terraform apply completed successfully."
                             rm -f "$LOCK_FILE"
@@ -154,7 +154,7 @@ EOF
                         sleep 10
                         echo "🔍 Checking PostgreSQL status..."
                         docker exec postgres_container pg_isready -U admin || echo "⚠️ Postgres not ready yet."
-                        
+
                         echo "⏳ Waiting for Node.js app to start..."
                         sleep 10
                         echo "🔍 Checking app health..."
