@@ -49,7 +49,7 @@ pipeline {
             }
         }
 
-        stage('Terraform Deploys') {
+        stage('Terraform Deploy') {
             steps {
                 dir("${TF_DIR}") {
                     script {
