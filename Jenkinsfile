@@ -38,10 +38,16 @@ pipeline {
 
                     echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-                    // Correct Git checkout
-                    checkout([$class: 'GitSCM',
+                    // Correct Git checkout using GitSCM
+                    checkout([
+                        $class: 'GitSCM',
                         branches: [[name: "*/${env.GIT_BRANCH}"]],
-                        userRemoteConfigs: [[url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"]]
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [],
+                        userRemoteConfigs: [[
+                            url: "${GIT_URL}",
+                            credentialsId: "${GIT_CREDENTIALS}"
+                        ]]
                     ])
                 }
             }
