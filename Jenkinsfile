@@ -3,8 +3,8 @@ pipeline {
 
     parameters {
         choice(
-            name: 'DEPLOY_ENV', 
-            choices: ['dev', 'staging', 'uat', 'preprod', 'prod'], 
+            name: 'DEPLOY_ENV',
+            choices: ['dev', 'staging', 'uat', 'preprod', 'prod'],
             description: 'Select the environment to deploy'
         )
     }
@@ -22,7 +22,6 @@ pipeline {
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
 
-        // Store the Docker image tag built in Dev for reuse
         IMAGE_TAG_FILE   = "${WORKSPACE}/last_successful_image_tag.txt"
     }
 
@@ -74,7 +73,7 @@ pipeline {
         }
 
         stage('Use Existing Docker Image for Promotion') {
-            when { expression { params.DEPLOY_ENV in ['staging', 'uat', 'preprod', 'prod'] } }
+            when { expression { params.DEPLOY_ENV in ['staging','uat', 'preprod', 'prod'] } }
             steps {
                 script {
                     if (fileExists(IMAGE_TAG_FILE)) {
@@ -103,16 +102,17 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        // Map environment to host port
-                        def portMap = [
-                            dev: 3100,
-                            staging: 3200,
-                            uat: 3300,
-                            preprod: 3400,
-                            prod: 3500
-                        ]
-                        def HOST_PORT = portMap[params.DEPLOY_ENV] ?: 3000
+                        // Set container name and host port dynamically
                         def CONTAINER_NAME = "node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
+                        def HOST_PORT
+                        switch(params.DEPLOY_ENV) {
+                            case 'dev': HOST_PORT = 3100; break
+                            case 'staging': HOST_PORT = 3200; break
+                            case 'uat': HOST_PORT = 3300; break
+                            case 'preprod': HOST_PORT = 3400; break
+                            case 'prod': HOST_PORT = 3500; break
+                            default: HOST_PORT = 3000
+                        }
 
                         sh """
                             echo "🔍 Checking Terraform lock..."
@@ -126,11 +126,8 @@ pipeline {
                                     exit 1
                                 fi
                             fi
-                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🛑 Stopping old container if running..."
-                            docker ps -q --filter "name=node_app_container_${params.DEPLOY_ENV}" | xargs -r docker stop
-                            docker ps -aq --filter "name=node_app_container_${params.DEPLOY_ENV}" | xargs -r docker rm
+                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
                             echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
@@ -152,10 +149,25 @@ EOF
 
                             echo "📝 Writing variables.tf..."
                             cat > variables.tf <<EOF
-variable "docker_image" { description = "Docker image to deploy" type = string }
-variable "environment" { description = "Deployment environment" type = string }
-variable "container_name" { description = "Docker container name" type = string }
-variable "host_port" { description = "Host port to expose" type = number }
+variable "docker_image" {
+  description = "Docker image to deploy"
+  type        = string
+}
+
+variable "environment" {
+  description = "Deployment environment"
+  type        = string
+}
+
+variable "container_name" {
+  description = "Docker container name"
+  type        = string
+}
+
+variable "host_port" {
+  description = "Host port to expose"
+  type        = number
+}
 EOF
 
                             echo "🧩 Initializing Terraform..."
