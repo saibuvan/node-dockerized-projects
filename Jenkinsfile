@@ -1,15 +1,16 @@
 pipeline {
     agent any
 
+    parameters {
+        choice(name: 'DEPLOY_ENV', choices: ['dev', 'staging', 'uat', 'preprod', 'prod'], description: 'Select the environment to deploy')
+    }
+
     environment {
-        IMAGE_TAG       = "10.0"
-        OLD_IMAGE_TAG   = "9.0"
         DOCKER_REPO     = "buvan654321/my-node-app"
-        GIT_BRANCH      = "staging"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
         TF_DIR          = "${WORKSPACE}/terraform"
-        LOCK_FILE       = "${WORKSPACE}/terraform.lock"
+        LOCK_FILE       = "/tmp/terraform.lock"
 
         MINIO_ENDPOINT   = "http://localhost:9000"
         MINIO_BUCKET     = "terraform-state"
@@ -20,53 +21,42 @@ pipeline {
 
     options {
         timestamps()
-        catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')
+        disableConcurrentBuilds()
     }
 
     stages {
 
-        stage('Checkout Code') {
-            steps {
-                echo "📦 Checking out code from ${GIT_BRANCH}..."
-                git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
-            }
-        }
-
-        stage('Detect App Port') {
+        stage('Checkout Branch') {
             steps {
                 script {
-                    def portLine = sh(
-                        script: "grep '^ARG APP_PORT' Dockerfile | cut -d'=' -f2 || echo '3000'",
-                        returnStdout: true
-                    ).trim()
-                    env.APP_PORT = portLine
-                    echo "🧭 Detected Application Port: ${env.APP_PORT}"
+                    if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'develop' }
+                    else if (params.DEPLOY_ENV == 'staging') { env.GIT_BRANCH = 'release/release_1' }
+                    else if (params.DEPLOY_ENV == 'uat') { env.GIT_BRANCH = 'release/release_1' }
+                    else if (params.DEPLOY_ENV == 'preprod') { env.GIT_BRANCH = 'release/release_1' }
+                    else { env.GIT_BRANCH = 'main' }
+
+                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+                    git branch: "${env.GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
                 }
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Build Docker Image') {
             steps {
-                sh 'npm install'
-            }
-        }
-
-        stage('Run Tests') {
-            steps {
-                sh 'npm test || echo "⚠️ Tests failed but continuing..."'
-            }
-        }
-
-        stage('Docker Build & Push') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker_cred',
-                    usernameVariable: 'DOCKERHUB_USERNAME',
-                    passwordVariable: 'DOCKERHUB_PASSWORD'
-                )]) {
+                script {
+                    env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
                     sh '''
                         echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
+                    '''
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker_cred', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                    sh '''
                         echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
                         docker logout
@@ -75,56 +65,31 @@ pipeline {
             }
         }
 
-        stage('Prepare Terraform Directory') {
-            steps {
-                sh '''
-                    mkdir -p ${TF_DIR}
-                    cp -r terraform/* ${TF_DIR}/ || true
-                    chown -R $(whoami):$(whoami) ${TF_DIR}
-                '''
-            }
-        }
-
-        stage('Approval for Deployment') {
-            when { expression { env.GIT_BRANCH == 'staging' } }
-            steps {
-                script {
-                    input message: "🚀 Deploy to STAGING environment?", ok: "Approve Deployment"
-                }
-            }
-        }
-
-        stage('Terraform Init & Apply (MinIO → node-app folder)') {
+        stage('Terraform Deploy') {
             steps {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            echo "🔍 Setting up MinIO backend..."
-                            mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
-
-                            echo "🪣 Ensuring bucket ${MINIO_BUCKET} exists..."
-                            mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1 || mc mb myminio/${MINIO_BUCKET}
-
-                            echo "📁 Ensuring node-app/ folder exists..."
-                            if ! mc ls myminio/${MINIO_BUCKET}/node-app >/dev/null 2>&1; then
-                                echo "📂 Creating node-app/ folder..."
-                                mc cp /dev/null myminio/${MINIO_BUCKET}/node-app/.keep || true
+                            echo "🔍 Checking for existing Terraform lock..."
+                            if [ -f "$LOCK_FILE" ]; then
+                                FILE_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
+                                if [ $FILE_AGE -gt 600 ]; then
+                                    echo "🧹 Removing stale lock file..."
+                                    rm -f "$LOCK_FILE"
+                                else
+                                    echo "🚫 Another deployment is running!"
+                                    exit 1
+                                fi
                             fi
 
-                            echo "🔍 Checking and removing old container..."
-                            docker ps -a --format '{{.Names}}' | grep -w "my-node-app-container" && \
-                                (echo "🧹 Removing old container..." && docker stop my-node-app-container && docker rm my-node-app-container) || \
-                                echo "✅ No existing container found."
+                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🧹 Cleaning previous Terraform cache..."
-                            rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
-
-                            echo "🧩 Writing backend.tf for node-app folder..."
+                            echo "🪣 Configuring MinIO backend..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
     bucket  = "${MINIO_BUCKET}"
-    key     = "node-app/terraform.tfstate"
+    key     = "state/${params.DEPLOY_ENV}/${JOB_NAME}.tfstate"
     region  = "${MINIO_REGION}"
     endpoints = { s3 = "${MINIO_ENDPOINT}" }
     access_key = "${MINIO_ACCESS_KEY}"
@@ -137,16 +102,14 @@ terraform {
 }
 EOF
 
-                            echo "🚀 Initializing Terraform backend..."
-                            terraform init -input=false -reconfigure
+                            echo "🧩 Initializing Terraform..."
+                            terraform init -reconfigure
 
-                            echo "🚀 Applying Terraform configuration..."
-                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
+                            echo "🚀 Applying Terraform changes for ${params.DEPLOY_ENV}..."
+                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
 
-                            echo "✅ Terraform apply completed."
-
-                            echo "🧾 Verifying tfstate in MinIO..."
-                            mc ls myminio/${MINIO_BUCKET}/node-app/
+                            echo "✅ Terraform deployment successful."
+                            rm -f "$LOCK_FILE"
                         '''
                     }
                 }
@@ -156,61 +119,54 @@ EOF
         stage('Verify Deployment') {
             steps {
                 script {
-                    sh """
-                        echo "🕓 Waiting for PostgreSQL..."
+                    sh '''
+                        echo "🔍 Verifying app status..."
                         sleep 10
-                        docker exec postgres_container pg_isready -U admin || echo "⚠️ Postgres may not be ready."
-
-                        echo "⏳ Waiting for Node app..."
-                        sleep 10
-                        curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
-                    """
+                        curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
+                    '''
                 }
             }
         }
 
-        stage('Cleanup Old Docker Images') {
+        stage('Promotion Confirmation') {
+            when { expression { params.DEPLOY_ENV in ['staging', 'uat', 'preprod'] } }
             steps {
-                sh '''
-                    echo "🧹 Cleaning up old Docker images..."
-                    docker image prune -f || true
-                    docker rmi ${DOCKER_REPO}:${OLD_IMAGE_TAG} || true
-                '''
+                script {
+                    input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment successful!"
+            echo "✅ Deployment successful for ${params.DEPLOY_ENV}"
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """App deployed successfully.
-Terraform state stored in MinIO path:
-myminio/${MINIO_BUCKET}/node-app/terraform.tfstate
-
-App URL: http://localhost:${APP_PORT}
+                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
+                 body: """Deployment successful in ${params.DEPLOY_ENV} environment.
+Docker Image: ${DOCKER_REPO}:${IMAGE_TAG}
 Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
-            echo "🚨 Deployment failed — rolling back..."
+            echo "🚨 Deployment failed for ${params.DEPLOY_ENV}. Rolling back..."
             dir("${TF_DIR}") {
                 sh '''
-                    terraform init -input=false -reconfigure
-                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}"
+                    terraform init -reconfigure
+                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous"
+                    echo "✅ Rollback completed."
                 '''
             }
-
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """Build failed. Rollback applied.
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
+                 body: """Deployment failed for ${params.DEPLOY_ENV}.
+Rollback executed successfully.
 Build URL: ${env.BUILD_URL}"""
         }
 
         always {
-            echo "🧹 Cleaning up lock file..."
-            sh 'rm -f "${LOCK_FILE}" || true'
+            echo "🧹 Cleaning up lock..."
+            sh 'rm -f "$LOCK_FILE" || true'
         }
     }
 }
