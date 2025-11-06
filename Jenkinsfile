@@ -94,11 +94,16 @@ pipeline {
             }
         }
 
-        stage('Terraform Init & Apply (MinIO Backend)') {
+        stage('Terraform Init & Apply (Clean Redeploy)') {
             steps {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
+                            echo "🔍 Checking and removing old container if exists..."
+                            docker ps -a --format '{{.Names}}' | grep -w "my-node-app-container" && \
+                                (echo "🧹 Removing old container..." && docker stop my-node-app-container && docker rm my-node-app-container) || \
+                                echo "✅ No existing container found."
+
                             echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
                                 FILE_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
@@ -161,6 +166,17 @@ EOF
                         curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
                     """
                 }
+            }
+        }
+
+        stage('Cleanup Old Docker Images') {
+            steps {
+                sh '''
+                    echo "🧹 Cleaning up old Docker images..."
+                    docker image prune -f || true
+                    docker rmi ${DOCKER_REPO}:${OLD_IMAGE_TAG} || true
+                    echo "✅ Old images cleaned up."
+                '''
             }
         }
     }
