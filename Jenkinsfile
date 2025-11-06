@@ -133,7 +133,6 @@ variable "environment" {
 variable "container_name" {
   description = "Docker container name"
   type        = string
-  default     = "node_app_container"
 }
 
 variable "host_port" {
@@ -143,6 +142,12 @@ variable "host_port" {
 }
 EOF
 
+                            # 💡 Use unique container name
+                            CONTAINER_NAME="node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
+
+                            echo "🧹 Removing old container if exists: \$CONTAINER_NAME"
+                            docker rm -f \$CONTAINER_NAME || true
+
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
@@ -150,7 +155,7 @@ EOF
                             terraform apply -auto-approve \
                                 -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
                                 -var="environment=${params.DEPLOY_ENV}" \
-                                -var="container_name=node_app_container" \
+                                -var="container_name=\$CONTAINER_NAME" \
                                 -var="host_port=3000"
 
                             echo "✅ Terraform deployment successful."
@@ -197,9 +202,10 @@ Build URL: ${env.BUILD_URL}"""
             dir("${TF_DIR}") {
                 sh """
                     terraform init -input=false -reconfigure
-                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous" \
-                                              -var="container_name=node_app_container" \
-                                              -var="host_port=3000"
+                    terraform apply -auto-approve \
+                        -var="docker_image=${DOCKER_REPO}:previous" \
+                        -var="container_name=node_app_container_rollback_${BUILD_NUMBER}" \
+                        -var="host_port=3000"
                     echo "✅ Rollback completed."
                 """
             }
