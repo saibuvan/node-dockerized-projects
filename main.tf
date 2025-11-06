@@ -10,8 +10,8 @@ terraform {
 
 provider "docker" {}
 
-resource "docker_network" "app_networks" {
-  name = "app_networks"
+resource "docker_network" "app_networkk" {
+  name = "app_networkk"
 }
 
 resource "docker_image" "node_app_image" {
@@ -34,7 +34,7 @@ resource "docker_container" "postgres_container" {
   restart = "always"
 
   networks_advanced {
-    name = docker_network.app_networks.name
+    name = docker_network.app_networkk.name
   }
 
   env = [
@@ -70,7 +70,7 @@ resource "docker_container" "pgadmin_container" {
   restart = "always"
 
   networks_advanced {
-    name = docker_network.app_networks.name
+    name = docker_network.app_networkk.name
   }
 
   env = [
@@ -98,7 +98,7 @@ resource "docker_container" "node_app_container" {
   restart = "always"
 
   networks_advanced {
-    name = docker_network.app_networks.name
+    name = docker_network.app_networkk.name
   }
 
   dynamic "ports" {
