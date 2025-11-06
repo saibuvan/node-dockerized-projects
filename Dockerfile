@@ -14,7 +14,7 @@ RUN npm install --production
 COPY . .
 
 # Define build-time argument for app port (default: 3000)
-ARG APP_PORT=3000
+ARG APP_PORT=5000
 
 # Make port available as environment variable
 ENV PORT=${APP_PORT}
