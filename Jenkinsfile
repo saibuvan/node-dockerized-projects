@@ -2,7 +2,11 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'DEPLOY_ENV', choices: ['dev', 'staging', 'uat', 'preprod', 'prod'], description: 'Select the environment to deploy')
+        choice(
+            name: 'DEPLOY_ENV', 
+            choices: ['dev', 'staging', 'uat', 'preprod', 'prod'], 
+            description: 'Select the environment to deploy'
+        )
     }
 
     environment {
@@ -17,6 +21,9 @@ pipeline {
         MINIO_REGION     = "us-east-1"
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
+
+        // This will store the image tag built in Dev to re-use for promotions
+        IMAGE_TAG_FILE   = "${WORKSPACE}/last_successful_image_tag.txt"
     }
 
     options {
@@ -54,13 +61,29 @@ pipeline {
         }
 
         stage('Build Docker Image') {
+            when { expression { params.DEPLOY_ENV == 'dev' } } // Build only for dev
             steps {
                 script {
                     env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
                     sh """
                         echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
+                        echo "${IMAGE_TAG}" > ${IMAGE_TAG_FILE}
                     """
+                }
+            }
+        }
+
+        stage('Use Existing Docker Image for Promotion') {
+            when { expression { params.DEPLOY_ENV in ['uat', 'preprod', 'prod'] } }
+            steps {
+                script {
+                    if (fileExists(IMAGE_TAG_FILE)) {
+                        env.IMAGE_TAG = readFile(IMAGE_TAG_FILE).trim()
+                        echo "📌 Re-using Docker image tag: ${env.IMAGE_TAG} for ${params.DEPLOY_ENV}"
+                    } else {
+                        error "❌ No previous dev image found. Run dev deployment first."
+                    }
                 }
             }
         }
@@ -137,7 +160,6 @@ variable "host_port" {
 }
 EOF
 
-                            # Assign container name and host port
                             CONTAINER_NAME="node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
                             case "${params.DEPLOY_ENV}" in
                                 dev) HOST_PORT=3100 ;;
@@ -219,7 +241,6 @@ Build URL: ${env.BUILD_URL}"""
     }
 }
 
-// Helper function to assign ports per environment
 def getPort(envName) {
     switch(envName) {
         case 'dev': return 3100
