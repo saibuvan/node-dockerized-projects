@@ -26,31 +26,31 @@ pipeline {
 
     stages {
 
-        stage('Checkout Branch') {
-            steps {
-                script {
-                    // Map DEPLOY_ENV to branch
-                    if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'dev' }
-                    else if (params.DEPLOY_ENV == 'staging') { env.GIT_BRANCH = 'release/release_1' }
-                    else if (params.DEPLOY_ENV == 'uat') { env.GIT_BRANCH = 'release/release_1' }
-                    else if (params.DEPLOY_ENV == 'preprod') { env.GIT_BRANCH = 'release/release_1' }
-                    else { env.GIT_BRANCH = 'main' }
+       stage('Checkout Branch') {
+    steps {
+        script {
+            // Map DEPLOY_ENV to actual branch names in repo
+            def branchMap = [
+                'dev'     : 'develop',
+                'staging' : 'release/release_1',
+                'uat'     : 'release/release_1',
+                'preprod' : 'release/release_1',
+                'prod'    : 'main'
+            ]
+            env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
 
-                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+            echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: "*/${env.GIT_BRANCH}"]],
-                        doGenerateSubmoduleConfigurations: false,
-                        extensions: [],
-                        userRemoteConfigs: [[
-                            url: "${GIT_URL}",
-                            credentialsId: "${GIT_CREDENTIALS}"
-                        ]]
-                    ])
-                }
-            }
+            checkout([$class: 'GitSCM',
+                branches: [[name: "${env.GIT_BRANCH}"]],
+                userRemoteConfigs: [[
+                    url: "${GIT_URL}",
+                    credentialsId: "${GIT_CREDENTIALS}"
+                ]]
+            ])
         }
+    }
+}
 
         stage('Build Docker Image') {
             steps {
