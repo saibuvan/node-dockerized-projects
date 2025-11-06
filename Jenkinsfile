@@ -75,18 +75,18 @@ pipeline {
                     script {
                         sh """
                             echo "🔍 Checking for existing Terraform lock..."
-                            if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
-                                if [ $FILE_AGE -gt 600 ]; then
+                            if [ -f "${LOCK_FILE}" ]; then
+                                FILE_AGE=\$(( \$(date +%s) - \$(stat -c %Y "${LOCK_FILE}") ))
+                                if [ \$FILE_AGE -gt 600 ]; then
                                     echo "🧹 Removing stale lock file..."
-                                    rm -f "$LOCK_FILE"
+                                    rm -f "${LOCK_FILE}"
                                 else
                                     echo "🚫 Another deployment is running!"
                                     exit 1
                                 fi
                             fi
 
-                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
+                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "${LOCK_FILE}"
 
                             echo "🪣 Configuring MinIO backend..."
                             cat > backend.tf <<EOF
@@ -113,7 +113,7 @@ EOF
                             terraform apply -auto-approve -var="docker_image=${FULL_IMAGE_NAME}" -var="environment=${params.DEPLOY_ENV}"
 
                             echo "✅ Terraform deployment successful."
-                            rm -f "$LOCK_FILE"
+                            rm -f "${LOCK_FILE}"
                         """
                     }
                 }
@@ -170,7 +170,7 @@ Build URL: ${env.BUILD_URL}"""
 
         always {
             echo "🧹 Cleaning up lock..."
-            sh 'rm -f "$LOCK_FILE" || true'
+            sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
 }
