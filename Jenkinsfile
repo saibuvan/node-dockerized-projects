@@ -22,7 +22,7 @@ pipeline {
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
 
-        // This will store the image tag built in Dev to re-use for promotions
+        // Store the Docker image tag built in Dev for reuse
         IMAGE_TAG_FILE   = "${WORKSPACE}/last_successful_image_tag.txt"
     }
 
@@ -36,7 +36,6 @@ pipeline {
         stage('Checkout Branch') {
             steps {
                 script {
-                    // Map DEPLOY_ENV to branch
                     def branchMap = [
                         'dev'     : 'dev',
                         'staging' : 'release/release_1',
@@ -61,7 +60,7 @@ pipeline {
         }
 
         stage('Build Docker Image') {
-            when { expression { params.DEPLOY_ENV == 'dev' } } // Build only for dev
+            when { expression { params.DEPLOY_ENV == 'dev' } }
             steps {
                 script {
                     env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
@@ -104,6 +103,18 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
+                        // Set container name and host port
+                        def CONTAINER_NAME = "node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
+                        def HOST_PORT
+                        switch(params.DEPLOY_ENV) {
+                            case 'dev': HOST_PORT = 3100; break
+                            case 'staging': HOST_PORT = 3200; break
+                            case 'uat': HOST_PORT = 3300; break
+                            case 'preprod': HOST_PORT = 3400; break
+                            case 'prod': HOST_PORT = 3500; break
+                            default: HOST_PORT = 3000
+                        }
+
                         sh """
                             echo "🔍 Checking Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
@@ -160,16 +171,6 @@ variable "host_port" {
 }
 EOF
 
-                            CONTAINER_NAME="node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
-                            case "${params.DEPLOY_ENV}" in
-                                dev) HOST_PORT=3100 ;;
-                                staging) HOST_PORT=3200 ;;
-                                uat) HOST_PORT=3300 ;;
-                                preprod) HOST_PORT=3400 ;;
-                                prod) HOST_PORT=3500 ;;
-                                *) HOST_PORT=3000 ;;
-                            esac
-
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
@@ -190,20 +191,29 @@ EOF
 
         stage('Verify Deployment') {
             steps {
-                sh """
-                    echo "🔍 Verifying app in container ${params.DEPLOY_ENV}..."
-                    sleep 10
-                    curl -f http://localhost:${getPort(params.DEPLOY_ENV)} || echo "⚠️ App might not be reachable yet."
-                """
+                script {
+                    def portMap = [
+                        dev: 3100,
+                        staging: 3200,
+                        uat: 3300,
+                        preprod: 3400,
+                        prod: 3500
+                    ]
+                    def PORT = portMap[params.DEPLOY_ENV] ?: 3000
+
+                    sh """
+                        echo "🔍 Verifying app in container ${params.DEPLOY_ENV}..."
+                        sleep 10
+                        curl -f http://localhost:${PORT} || echo "⚠️ App might not be reachable yet."
+                    """
+                }
             }
         }
 
         stage('Promotion Confirmation') {
             when { expression { params.DEPLOY_ENV in ['staging', 'uat', 'preprod'] } }
             steps {
-                script {
-                    input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
-                }
+                input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
             }
         }
     }
@@ -219,18 +229,11 @@ Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
-            echo "🚨 Deployment failed for ${params.DEPLOY_ENV}. Rolling back..."
-            dir("${TF_DIR}") {
-                sh """
-                    terraform init -input=false -reconfigure
-                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous"
-                    echo "✅ Rollback completed."
-                """
-            }
+            echo "🚨 Deployment failed for ${params.DEPLOY_ENV}. Please check the logs."
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
                  body: """Deployment failed for ${params.DEPLOY_ENV}.
-Rollback executed successfully.
+Please review the Jenkins console for details.
 Build URL: ${env.BUILD_URL}"""
         }
 
@@ -238,16 +241,5 @@ Build URL: ${env.BUILD_URL}"""
             echo "🧹 Cleaning up lock..."
             sh 'rm -f "$LOCK_FILE" || true'
         }
-    }
-}
-
-def getPort(envName) {
-    switch(envName) {
-        case 'dev': return 3100
-        case 'staging': return 3200
-        case 'uat': return 3300
-        case 'preprod': return 3400
-        case 'prod': return 3500
-        default: return 3000
     }
 }
