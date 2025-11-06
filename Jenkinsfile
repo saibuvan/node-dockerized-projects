@@ -27,30 +27,31 @@ pipeline {
     stages {
 
         stage('Checkout Branch') {
-            steps {
-                script {
-                    // Map DEPLOY_ENV to branch
-                    def branchMap = [
-                        'dev'     : 'dev',
-                        'staging' : 'release/release_1',
-                        'uat'     : 'release/release_1',
-                        'preprod' : 'release/release_1',
-                        'prod'    : 'main'
-                    ]
-                    env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
+    steps {
+        script {
+            // Map DEPLOY_ENV to actual branch names in repo
+            def branchMap = [
+                'dev'     : 'dev',
+                'staging' : 'release/release_1',
+                'uat'     : 'release/release_1',
+                'preprod' : 'release/release_1',
+                'prod'    : 'main'
+            ]
 
-                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+            env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
+            echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-                    checkout([$class: 'GitSCM',
-                        branches: [[name: "*/${env.GIT_BRANCH}"]],
-                        userRemoteConfigs: [[
-                            url: "${GIT_URL}",
-                            credentialsId: "${GIT_CREDENTIALS}"
-                        ]]
-                    ])
-                }
-            }
+            checkout([
+                $class: 'GitSCM',
+                branches: [[name: "${env.GIT_BRANCH}"]],
+                userRemoteConfigs: [[
+                    url: "${GIT_URL}",
+                    credentialsId: "${GIT_CREDENTIALS}"
+                ]]
+            ])
         }
+    }
+}
 
         stage('Build & Run Docker Container') {
             steps {
