@@ -94,22 +94,16 @@ pipeline {
             }
         }
 
-        stage('Terraform Init & Apply (with MinIO backend)') {
+        stage('Terraform Init & Apply (MinIO Backend)') {
             steps {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
                             echo "🔍 Ensuring MinIO bucket exists..."
-                            if ! mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4; then
-                                echo "⚠️ Could not configure mc alias. Installing mc..."
-                                wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
-                                chmod +x /usr/local/bin/mc
-                                mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4
-                            fi
-
+                            mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
                             if ! mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1; then
-                                echo "🪣 Creating missing MinIO bucket: ${MINIO_BUCKET}"
-                                mc mb myminio/${MINIO_BUCKET} || true
+                                echo "🪣 Bucket ${MINIO_BUCKET} not found. Creating..."
+                                mc mb myminio/${MINIO_BUCKET}
                             else
                                 echo "✅ MinIO bucket ${MINIO_BUCKET} exists."
                             fi
@@ -138,12 +132,12 @@ terraform {
 EOF
 
                             echo "🧩 Initializing Terraform with MinIO backend..."
-                            terraform init -migrate-state -reconfigure
+                            terraform init -reconfigure
 
                             echo "🚀 Applying Terraform (IMAGE_TAG=${IMAGE_TAG})..."
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
 
-                            echo "✅ Terraform apply completed successfully and state uploaded to MinIO."
+                            echo "✅ Terraform apply completed successfully."
                         '''
                     }
                 }
@@ -205,6 +199,11 @@ Build URL: ${env.BUILD_URL}"""
                  subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rollback Applied)",
                  body: """Build failed. Rollback applied.
 Build URL: ${env.BUILD_URL}"""
+        }
+
+        always {
+            echo "🧹 Cleaning up Terraform lock..."
+            sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
 }
