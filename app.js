@@ -4,7 +4,7 @@ const app = express();
 const port = 3000;
 
 app.get('/', (req, res) => {
-  res.send('Hello World my Redington services buddy forever nothing no!!!');
+  res.send('Hello World my Redington services buddy forever nothing guy!!!');
 });
 
 // ✅ Health endpoint
