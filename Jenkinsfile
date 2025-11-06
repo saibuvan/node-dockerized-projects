@@ -30,10 +30,12 @@ pipeline {
         stage('Determine Branch') {
             steps {
                 script {
-                    env.GIT_BRANCH = switch(params.DEPLOY_ENV) {
-                        case 'dev' -> 'develop'
-                        case 'staging', 'uat', 'preprod' -> 'release/release_1'
-                        default -> 'main'
+                    if (params.DEPLOY_ENV == 'dev') {
+                        env.GIT_BRANCH = 'develop'
+                    } else if (params.DEPLOY_ENV == 'staging' || params.DEPLOY_ENV == 'uat' || params.DEPLOY_ENV == 'preprod') {
+                        env.GIT_BRANCH = 'release/release_1'
+                    } else {
+                        env.GIT_BRANCH = 'main'
                     }
                     echo "📦 Will checkout branch: ${env.GIT_BRANCH}"
                 }
