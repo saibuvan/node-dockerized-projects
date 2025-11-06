@@ -30,7 +30,7 @@ pipeline {
             steps {
                 script {
                     // Map DEPLOY_ENV to branch
-                    if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'develop' }
+                    if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'deve' }
                     else if (params.DEPLOY_ENV == 'staging') { env.GIT_BRANCH = 'release/release_1' }
                     else if (params.DEPLOY_ENV == 'uat') { env.GIT_BRANCH = 'release/release_1' }
                     else if (params.DEPLOY_ENV == 'preprod') { env.GIT_BRANCH = 'release/release_1' }
