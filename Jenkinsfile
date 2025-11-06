@@ -22,7 +22,6 @@ pipeline {
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
 
-        // Store the Docker image tag built in Dev for reuse
         IMAGE_TAG_FILE   = "${WORKSPACE}/last_successful_image_tag.txt"
     }
 
@@ -99,22 +98,45 @@ pipeline {
             }
         }
 
+        stage('Prepare Container & Port') {
+            steps {
+                script {
+                    def CONTAINER_NAME = "node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
+                    def HOST_PORT
+                    switch(params.DEPLOY_ENV) {
+                        case 'dev': HOST_PORT = 3100; break
+                        case 'staging': HOST_PORT = 3200; break
+                        case 'uat': HOST_PORT = 3300; break
+                        case 'preprod': HOST_PORT = 3400; break
+                        case 'prod': HOST_PORT = 3500; break
+                        default: HOST_PORT = 3000
+                    }
+                    env.CONTAINER_NAME = CONTAINER_NAME
+                    env.HOST_PORT = HOST_PORT.toString()
+
+                    // Stop and remove any container already using the port
+                    sh """
+                        EXISTING_CONTAINER=\$(docker ps -q -f "name=node_app_container_${params.DEPLOY_ENV}_")
+                        if [ ! -z "\$EXISTING_CONTAINER" ]; then
+                            echo "⚠️ Stopping existing container(s)..."
+                            docker stop \$EXISTING_CONTAINER || true
+                            docker rm \$EXISTING_CONTAINER || true
+                        fi
+
+                        # Also check if port is in use and kill any process
+                        if lsof -i :${HOST_PORT} > /dev/null; then
+                            echo "⚠️ Port ${HOST_PORT} is in use. Killing process..."
+                            fuser -k ${HOST_PORT}/tcp
+                        fi
+                    """
+                }
+            }
+        }
+
         stage('Terraform Deploy') {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        // Set container name and host port
-                        def CONTAINER_NAME = "node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
-                        def HOST_PORT
-                        switch(params.DEPLOY_ENV) {
-                            case 'dev': HOST_PORT = 3100; break
-                            case 'staging': HOST_PORT = 3200; break
-                            case 'uat': HOST_PORT = 3300; break
-                            case 'preprod': HOST_PORT = 3400; break
-                            case 'prod': HOST_PORT = 3500; break
-                            default: HOST_PORT = 3000
-                        }
-
                         sh """
                             echo "🔍 Checking Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
