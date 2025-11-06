@@ -42,7 +42,7 @@ pipeline {
                     echo "🐳 Building Docker image: ${DOCKER_REPO}:${IMAGE_TAG}"
                     sh """
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
-                        docker login -u ${env.DOCKERHUB_USER ?: 'buvan654321'} -p ${env.DOCKERHUB_PASS ?: 'your_password_here'}
+                        echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
                     """
                 }
