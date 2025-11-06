@@ -27,30 +27,29 @@ pipeline {
     stages {
 
         stage('Checkout Branch') {
-    steps {
-        script {
-            // Map DEPLOY_ENV to actual branch names in repo
-            def branchMap = [
-                'dev'     : 'dev',
-                'staging' : 'release/release_1',
-                'uat'     : 'release/release_1',
-                'preprod' : 'release/release_1',
-                'prod'    : 'main'
-            ]
-            env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
+            steps {
+                script {
+                    def branchMap = [
+                        'dev'     : 'dev',
+                        'staging' : 'release/release_1',
+                        'uat'     : 'release/release_1',
+                        'preprod' : 'release/release_1',
+                        'prod'    : 'main'
+                    ]
+                    env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
+                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-            echo "📦 Checking out branch: ${env.GIT_BRANCH}"
-
-            checkout([$class: 'GitSCM',
-                branches: [[name: "${env.GIT_BRANCH}"]],
-                userRemoteConfigs: [[
-                    url: "${GIT_URL}",
-                    credentialsId: "${GIT_CREDENTIALS}"
-                ]]
-            ])
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: "${env.GIT_BRANCH}"]],
+                        userRemoteConfigs: [[
+                            url: "${GIT_URL}",
+                            credentialsId: "${GIT_CREDENTIALS}"
+                        ]]
+                    ])
+                }
+            }
         }
-    }
-}
+
         stage('Build Docker Image') {
             steps {
                 script {
@@ -116,6 +115,19 @@ terraform {
     skip_requesting_account_id = true
     use_path_style = true
   }
+}
+EOF
+
+                            echo "📝 Ensuring variables.tf exists..."
+                            cat > variables.tf <<EOF
+variable "docker_image" {
+  description = "Docker image to deploy"
+  type        = string
+}
+
+variable "environment" {
+  description = "Deployment environment"
+  type        = string
 }
 EOF
 
