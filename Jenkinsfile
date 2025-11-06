@@ -22,37 +22,22 @@ pipeline {
     options {
         timestamps()
         disableConcurrentBuilds()
-        timeout(time: 60, unit: 'MINUTES')
     }
 
     stages {
 
-        stage('Determine Branch') {
+        stage('Checkout Branch') {
             steps {
                 script {
-                    if (params.DEPLOY_ENV == 'dev') {
-                        env.GIT_BRANCH = 'develop'
-                    } else if (params.DEPLOY_ENV == 'staging' || params.DEPLOY_ENV == 'uat' || params.DEPLOY_ENV == 'preprod') {
-                        env.GIT_BRANCH = 'release/release_1'
-                    } else {
-                        env.GIT_BRANCH = 'main'
-                    }
-                    echo "📦 Will checkout branch: ${env.GIT_BRANCH}"
-                }
-            }
-        }
+                    if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'develop' }
+                    else if (params.DEPLOY_ENV == 'staging') { env.GIT_BRANCH = 'release/release_1' }
+                    else if (params.DEPLOY_ENV == 'uat') { env.GIT_BRANCH = 'release/release_1' }
+                    else if (params.DEPLOY_ENV == 'preprod') { env.GIT_BRANCH = 'release/release_1' }
+                    else { env.GIT_BRANCH = 'main' }
 
-        stage('Checkout Code') {
-            steps {
-                checkout([$class: 'GitSCM',
-                    branches: [[name: "*/${env.GIT_BRANCH}"]],
-                    doGenerateSubmoduleConfigurations: false,
-                    extensions: [[$class: 'CleanBeforeCheckout']],
-                    userRemoteConfigs: [[
-                        url: "${GIT_URL}",
-                        credentialsId: "${GIT_CREDENTIALS}"
-                    ]]
-                ])
+                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+                    git branch: "${env.GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
+                }
             }
         }
 
@@ -60,10 +45,10 @@ pipeline {
             steps {
                 script {
                     env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
-                    sh """
+                    sh '''
                         echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
-                    """
+                    '''
                 }
             }
         }
@@ -71,11 +56,11 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker_cred', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                    sh """
+                    sh '''
                         echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
                         docker logout
-                    """
+                    '''
                 }
             }
         }
@@ -84,10 +69,10 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        sh """
+                        sh '''
                             echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=\$(($(date +%s) - \$(stat -c %Y "$LOCK_FILE")))
+                                FILE_AGE=\$((\$(date +%s) - \$(stat -c %Y "$LOCK_FILE")))
                                 if [ \$FILE_AGE -gt 600 ]; then
                                     echo "🧹 Removing stale lock file..."
                                     rm -f "$LOCK_FILE"
@@ -96,16 +81,17 @@ pipeline {
                                     exit 1
                                 fi
                             fi
+
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🔍 Ensuring MinIO backend bucket exists..."
-                            mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4
-                            mc ls myminio/${MINIO_BUCKET} || mc mb myminio/${MINIO_BUCKET}
+                            echo "🔍 Ensuring MinIO alias & bucket..."
+                            mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
+                            mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1 || mc mb myminio/${MINIO_BUCKET}
 
-                            echo "🧹 Cleaning old Terraform cache..."
+                            echo "🧹 Cleaning previous Terraform cache..."
                             rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
 
-                            echo "🔧 Writing backend.tf..."
+                            echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -126,15 +112,16 @@ EOF
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
-                            echo "🚀 Applying Terraform for ${params.DEPLOY_ENV}..."
+                            echo "🚀 Applying Terraform changes for ${params.DEPLOY_ENV}..."
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
 
                             echo "✅ Terraform deployment successful."
-                            rm -f "$LOCK_FILE"
 
-                            echo "🧾 Verifying tfstate file in MinIO..."
-                            mc ls myminio/${MINIO_BUCKET}/state/${params.DEPLOY_ENV}/ || echo "⚠️ tfstate file not found!"
-                        """
+                            echo "🧾 Verifying tfstate upload to MinIO..."
+                            mc ls myminio/${MINIO_BUCKET}/state/${params.DEPLOY_ENV}/${JOB_NAME}.tfstate || echo "⚠️ tfstate file not found in MinIO!"
+
+                            rm -f "$LOCK_FILE"
+                        '''
                     }
                 }
             }
@@ -142,18 +129,22 @@ EOF
 
         stage('Verify Deployment') {
             steps {
-                sh """
-                    echo "🔍 Waiting for app to be ready..."
-                    sleep 10
-                    curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
-                """
+                script {
+                    sh '''
+                        echo "🔍 Verifying app status..."
+                        sleep 10
+                        curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
+                    '''
+                }
             }
         }
 
         stage('Promotion Confirmation') {
             when { expression { params.DEPLOY_ENV in ['staging', 'uat', 'preprod'] } }
             steps {
-                input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
+                script {
+                    input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
+                }
             }
         }
     }
@@ -165,18 +156,17 @@ EOF
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
                  body: """Deployment successful in ${params.DEPLOY_ENV} environment.
 Docker Image: ${DOCKER_REPO}:${IMAGE_TAG}
-Terraform state bucket: ${MINIO_BUCKET}
 Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
             echo "🚨 Deployment failed for ${params.DEPLOY_ENV}. Rolling back..."
             dir("${TF_DIR}") {
-                sh """
+                sh '''
                     terraform init -input=false -reconfigure
                     terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous"
                     echo "✅ Rollback completed."
-                """
+                '''
             }
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
