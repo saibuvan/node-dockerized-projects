@@ -3,8 +3,8 @@ pipeline {
 
     parameters {
         choice(
-            name: 'DEPLOY_ENV', 
-            choices: ['dev', 'staging', 'uat', 'preprod', 'prod'], 
+            name: 'DEPLOY_ENV',
+            choices: ['dev', 'staging', 'uat', 'preprod', 'prod'],
             description: 'Select the environment to deploy'
         )
     }
@@ -114,20 +114,27 @@ pipeline {
                     env.CONTAINER_NAME = CONTAINER_NAME
                     env.HOST_PORT = HOST_PORT.toString()
 
-                    // Stop and remove any container already using the port
+                    // Stop and remove any existing container
                     sh """
-                        EXISTING_CONTAINER=\$(docker ps -q -f "name=node_app_container_${params.DEPLOY_ENV}_")
+                        EXISTING_CONTAINER=\$(docker ps -aq -f "name=node_app_container_${params.DEPLOY_ENV}_")
                         if [ ! -z "\$EXISTING_CONTAINER" ]; then
                             echo "⚠️ Stopping existing container(s)..."
                             docker stop \$EXISTING_CONTAINER || true
                             docker rm \$EXISTING_CONTAINER || true
                         fi
 
-                        # Also check if port is in use and kill any process
-                        if lsof -i :${HOST_PORT} > /dev/null; then
-                            echo "⚠️ Port ${HOST_PORT} is in use. Killing process..."
-                            fuser -k ${HOST_PORT}/tcp
-                        fi
+                        # Wait until port is free
+                        COUNT=0
+                        while lsof -i :${HOST_PORT} > /dev/null; do
+                            echo "⚠️ Waiting for port ${HOST_PORT} to be released..."
+                            sleep 3
+                            COUNT=\$((COUNT + 1))
+                            if [ \$COUNT -gt 10 ]; then
+                                echo "❌ Port ${HOST_PORT} still in use after 30s. Aborting."
+                                exit 1
+                            fi
+                        done
+                        echo "✅ Port ${HOST_PORT} is free."
                     """
                 }
             }
