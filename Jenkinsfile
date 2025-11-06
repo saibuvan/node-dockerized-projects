@@ -29,7 +29,7 @@ pipeline {
         stage('Checkout Branch') {
             steps {
                 script {
-                    // Map DEPLOY_ENV to actual branch names in repo
+                    // Map DEPLOY_ENV to branch
                     def branchMap = [
                         'dev'     : 'dev',
                         'staging' : 'release/release_1',
@@ -53,20 +53,13 @@ pipeline {
             }
         }
 
-        stage('Build & Run Docker Container') {
+        stage('Build Docker Image') {
             steps {
                 script {
                     env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
-
                     sh """
-                        echo "🐳 Building Docker image for ${params.DEPLOY_ENV}..."
+                        echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
-
-                        echo "🚀 Stopping any existing container for ${params.DEPLOY_ENV}..."
-                        docker rm -f ${params.DEPLOY_ENV} || true
-
-                        echo "🚀 Running new container for ${params.DEPLOY_ENV}..."
-                        docker run -d --name ${params.DEPLOY_ENV} -p ${getPort(params.DEPLOY_ENV)}:3000 ${DOCKER_REPO}:${IMAGE_TAG}
                     """
                 }
             }
@@ -103,7 +96,7 @@ pipeline {
 
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🪣 Writing backend.tf for MinIO..."
+                            echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -132,13 +125,38 @@ variable "environment" {
   description = "Deployment environment"
   type        = string
 }
+
+variable "container_name" {
+  description = "Docker container name"
+  type        = string
+}
+
+variable "host_port" {
+  description = "Host port to expose"
+  type        = number
+}
 EOF
+
+                            # Assign container name and host port
+                            CONTAINER_NAME="node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
+                            case "${params.DEPLOY_ENV}" in
+                                dev) HOST_PORT=3100 ;;
+                                staging) HOST_PORT=3200 ;;
+                                uat) HOST_PORT=3300 ;;
+                                preprod) HOST_PORT=3400 ;;
+                                prod) HOST_PORT=3500 ;;
+                                *) HOST_PORT=3000 ;;
+                            esac
 
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
                             echo "🚀 Applying Terraform for ${params.DEPLOY_ENV}..."
-                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
+                            terraform apply -auto-approve \
+                                -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                                -var="environment=${params.DEPLOY_ENV}" \
+                                -var="container_name=${CONTAINER_NAME}" \
+                                -var="host_port=${HOST_PORT}"
 
                             echo "✅ Deployment successful for ${params.DEPLOY_ENV}"
                             rm -f "$LOCK_FILE"
