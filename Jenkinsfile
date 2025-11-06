@@ -10,7 +10,7 @@ pipeline {
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
         TF_DIR          = "${WORKSPACE}/terraform"
-        LOCK_FILE       = "/tmp/terraform.lock"
+        LOCK_FILE       = "/tmp/terraform-${params.DEPLOY_ENV}.lock"
 
         MINIO_ENDPOINT   = "http://localhost:9000"
         MINIO_BUCKET     = "terraform-state"
@@ -26,39 +26,47 @@ pipeline {
 
     stages {
 
-       stage('Checkout Branch') {
-    steps {
-        script {
-            // Map DEPLOY_ENV to actual branch names in repo
-            def branchMap = [
-                'dev'     : 'develop',
-                'staging' : 'release/release_1',
-                'uat'     : 'release/release_1',
-                'preprod' : 'release/release_1',
-                'prod'    : 'main'
-            ]
-            env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
+        stage('Checkout Branch') {
+            steps {
+                script {
+                    // Map DEPLOY_ENV to branch
+                    def branchMap = [
+                        'dev'     : 'dev',
+                        'staging' : 'release/release_1',
+                        'uat'     : 'release/release_1',
+                        'preprod' : 'release/release_1',
+                        'prod'    : 'main'
+                    ]
+                    env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
 
-            echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-            checkout([$class: 'GitSCM',
-                branches: [[name: "${env.GIT_BRANCH}"]],
-                userRemoteConfigs: [[
-                    url: "${GIT_URL}",
-                    credentialsId: "${GIT_CREDENTIALS}"
-                ]]
-            ])
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: "*/${env.GIT_BRANCH}"]],
+                        userRemoteConfigs: [[
+                            url: "${GIT_URL}",
+                            credentialsId: "${GIT_CREDENTIALS}"
+                        ]]
+                    ])
+                }
+            }
         }
-    }
-}
 
-        stage('Build Docker Image') {
+        stage('Build & Run Docker Container') {
             steps {
                 script {
                     env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
+
                     sh """
-                        echo "🐳 Building Docker image..."
+                        echo "🐳 Building Docker image for ${params.DEPLOY_ENV}..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
+
+                        echo "🚀 Running container for ${params.DEPLOY_ENV}..."
+                        # Stop existing container for environment if running
+                        docker rm -f ${params.DEPLOY_ENV} || true
+
+                        # Run new container for this environment
+                        docker run -d --name ${params.DEPLOY_ENV} -p ${getPort(params.DEPLOY_ENV)}:3000 ${DOCKER_REPO}:${IMAGE_TAG}
                     """
                 }
             }
@@ -68,9 +76,7 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker_cred', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_TOKEN')]) {
                     sh """
-                        echo "🔐 Logging into Docker Hub..."
                         echo "\$DOCKERHUB_TOKEN" | docker login -u "\$DOCKERHUB_USERNAME" --password-stdin
-                        echo "🐳 Pushing Docker image..."
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
                         docker logout
                     """
@@ -83,25 +89,25 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh """
-                            echo "🔍 Checking for existing Terraform lock..."
+                            echo "🔍 Checking Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
                                 FILE_AGE=\$(( \$(date +%s) - \$(stat -c %Y "$LOCK_FILE") ))
                                 if [ \$FILE_AGE -gt 600 ]; then
-                                    echo "🧹 Removing stale lock file..."
+                                    echo "🧹 Removing stale lock..."
                                     rm -f "$LOCK_FILE"
                                 else
-                                    echo "🚫 Another deployment is running!"
+                                    echo "🚫 Another deployment is running for ${params.DEPLOY_ENV}!"
                                     exit 1
                                 fi
                             fi
 
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🔍 Ensuring MinIO alias & bucket..."
+                            echo "🔍 Configuring MinIO..."
                             mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
                             mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1 || mc mb myminio/${MINIO_BUCKET}
 
-                            echo "🧹 Cleaning previous Terraform cache..."
+                            echo "🧹 Cleaning Terraform..."
                             rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
 
                             echo "🪣 Writing backend.tf..."
@@ -125,12 +131,12 @@ EOF
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
-                            echo "🚀 Applying Terraform changes for ${params.DEPLOY_ENV}..."
-                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
+                            echo "🚀 Applying Terraform for ${params.DEPLOY_ENV}..."
+                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
 
-                            echo "✅ Terraform deployment successful."
-                            echo "🧾 Verifying tfstate upload to MinIO..."
-                            mc ls myminio/${MINIO_BUCKET}/state/${params.DEPLOY_ENV}/${JOB_NAME}.tfstate || echo "⚠️ tfstate file not found in MinIO!"
+                            echo "✅ Deployment successful for ${params.DEPLOY_ENV}"
+                            echo "🧾 Checking tfstate in MinIO..."
+                            mc ls myminio/${MINIO_BUCKET}/state/${params.DEPLOY_ENV}/${JOB_NAME}.tfstate || echo "⚠️ tfstate not found!"
 
                             rm -f "$LOCK_FILE"
                         """
@@ -142,9 +148,9 @@ EOF
         stage('Verify Deployment') {
             steps {
                 sh """
-                    echo "🔍 Verifying app status..."
+                    echo "🔍 Verifying app in container ${params.DEPLOY_ENV}..."
                     sleep 10
-                    curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
+                    curl -f http://localhost:${getPort(params.DEPLOY_ENV)} || echo "⚠️ App might not be reachable yet."
                 """
             }
         }
@@ -189,5 +195,17 @@ Build URL: ${env.BUILD_URL}"""
             echo "🧹 Cleaning up lock..."
             sh 'rm -f "$LOCK_FILE" || true'
         }
+    }
+}
+
+// Helper function to assign ports per environment
+def getPort(envName) {
+    switch(envName) {
+        case 'dev': return 3100
+        case 'staging': return 3200
+        case 'uat': return 3300
+        case 'preprod': return 3400
+        case 'prod': return 3500
+        default: return 3000
     }
 }
