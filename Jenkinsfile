@@ -38,12 +38,12 @@ pipeline {
 
                     echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-                    // Correct Git checkout using GitSCM
+                    // Proper Git checkout using GitSCM
                     checkout([
                         $class: 'GitSCM',
                         branches: [[name: "*/${env.GIT_BRANCH}"]],
                         doGenerateSubmoduleConfigurations: false,
-                        extensions: [],
+                        extensions: [[$class: 'WipeWorkspace']], // ensures clean checkout
                         userRemoteConfigs: [[
                             url: "${GIT_URL}",
                             credentialsId: "${GIT_CREDENTIALS}"
@@ -77,7 +77,7 @@ pipeline {
             }
         }
 
-        stage('Terraform Deploys') {
+        stage('Terraform Deploy') {
             steps {
                 dir("${TF_DIR}") {
                     script {
@@ -151,9 +151,7 @@ EOF
         stage('Promotion Confirmation') {
             when { expression { params.DEPLOY_ENV in ['staging', 'uat', 'preprod'] } }
             steps {
-                script {
-                    input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
-                }
+                input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
             }
         }
     }
