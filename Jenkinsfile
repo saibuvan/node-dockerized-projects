@@ -94,16 +94,24 @@ pipeline {
             }
         }
 
-        stage('Terraform Init & Apply (Ensure MinIO Sync)') {
+        stage('Terraform Init & Apply (MinIO → node-app folder)') {
             steps {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            echo "🔍 Ensuring MinIO alias & bucket..."
+                            echo "🔍 Setting up MinIO backend..."
                             mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
+
+                            echo "🪣 Ensuring bucket ${MINIO_BUCKET} exists..."
                             mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1 || mc mb myminio/${MINIO_BUCKET}
 
-                            echo "🔍 Removing old container if exists..."
+                            echo "📁 Ensuring node-app/ folder exists..."
+                            if ! mc ls myminio/${MINIO_BUCKET}/node-app >/dev/null 2>&1; then
+                                echo "📂 Creating node-app/ folder..."
+                                mc cp /dev/null myminio/${MINIO_BUCKET}/node-app/.keep || true
+                            fi
+
+                            echo "🔍 Checking and removing old container..."
                             docker ps -a --format '{{.Names}}' | grep -w "my-node-app-container" && \
                                 (echo "🧹 Removing old container..." && docker stop my-node-app-container && docker rm my-node-app-container) || \
                                 echo "✅ No existing container found."
@@ -111,12 +119,12 @@ pipeline {
                             echo "🧹 Cleaning previous Terraform cache..."
                             rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
 
-                            echo "🔧 Writing backend.tf..."
+                            echo "🧩 Writing backend.tf for node-app folder..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
     bucket  = "${MINIO_BUCKET}"
-    key     = "state/${JOB_NAME}.tfstate"
+    key     = "node-app/terraform.tfstate"
     region  = "${MINIO_REGION}"
     endpoints = { s3 = "${MINIO_ENDPOINT}" }
     access_key = "${MINIO_ACCESS_KEY}"
@@ -129,16 +137,16 @@ terraform {
 }
 EOF
 
-                            echo "🧩 Initializing Terraform backend (forcing MinIO connection)..."
+                            echo "🚀 Initializing Terraform backend..."
                             terraform init -input=false -reconfigure
 
-                            echo "🚀 Applying Terraform..."
+                            echo "🚀 Applying Terraform configuration..."
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
 
-                            echo "✅ Terraform apply done."
+                            echo "✅ Terraform apply completed."
 
-                            echo "🧾 Verifying tfstate upload to MinIO..."
-                            mc ls myminio/${MINIO_BUCKET}/state/ || echo "⚠️ tfstate file not found in MinIO!"
+                            echo "🧾 Verifying tfstate in MinIO..."
+                            mc ls myminio/${MINIO_BUCKET}/node-app/
                         '''
                     }
                 }
@@ -178,8 +186,10 @@ EOF
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """App deployed successfully.
-Terraform state stored in MinIO bucket: ${MINIO_BUCKET}
-URL: http://localhost:${APP_PORT}
+Terraform state stored in MinIO path:
+myminio/${MINIO_BUCKET}/node-app/terraform.tfstate
+
+App URL: http://localhost:${APP_PORT}
 Build URL: ${env.BUILD_URL}"""
         }
 
@@ -199,7 +209,7 @@ Build URL: ${env.BUILD_URL}"""
         }
 
         always {
-            echo "🧹 Cleaning up..."
+            echo "🧹 Cleaning up lock file..."
             sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
