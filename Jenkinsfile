@@ -29,6 +29,7 @@ pipeline {
         stage('Checkout Branch') {
             steps {
                 script {
+                    // Map DEPLOY_ENV to branch
                     if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'develop' }
                     else if (params.DEPLOY_ENV == 'staging') { env.GIT_BRANCH = 'release/release_1' }
                     else if (params.DEPLOY_ENV == 'uat') { env.GIT_BRANCH = 'release/release_1' }
@@ -36,7 +37,12 @@ pipeline {
                     else { env.GIT_BRANCH = 'main' }
 
                     echo "📦 Checking out branch: ${env.GIT_BRANCH}"
-                    git branch: "${env.GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
+
+                    // Correct Git checkout
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: "*/${env.GIT_BRANCH}"]],
+                        userRemoteConfigs: [[url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"]]
+                    ])
                 }
             }
         }
@@ -45,10 +51,10 @@ pipeline {
             steps {
                 script {
                     env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
-                    sh '''
+                    sh """
                         echo "🐳 Building Docker image..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
-                    '''
+                    """
                 }
             }
         }
@@ -56,11 +62,11 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker_cred', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                    sh '''
-                        echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                    sh """
+                        echo "\$DOCKERHUB_PASSWORD" | docker login -u "\$DOCKERHUB_USERNAME" --password-stdin
                         docker push ${DOCKER_REPO}:${IMAGE_TAG}
                         docker logout
-                    '''
+                    """
                 }
             }
         }
@@ -69,10 +75,10 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        sh '''
+                        sh """
                             echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=\$((\$(date +%s) - \$(stat -c %Y "$LOCK_FILE")))
+                                FILE_AGE=\$(( \$(date +%s) - \$(stat -c %Y "$LOCK_FILE") ))
                                 if [ \$FILE_AGE -gt 600 ]; then
                                     echo "🧹 Removing stale lock file..."
                                     rm -f "$LOCK_FILE"
@@ -116,12 +122,11 @@ EOF
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
 
                             echo "✅ Terraform deployment successful."
-
                             echo "🧾 Verifying tfstate upload to MinIO..."
                             mc ls myminio/${MINIO_BUCKET}/state/${params.DEPLOY_ENV}/${JOB_NAME}.tfstate || echo "⚠️ tfstate file not found in MinIO!"
 
                             rm -f "$LOCK_FILE"
-                        '''
+                        """
                     }
                 }
             }
@@ -129,13 +134,11 @@ EOF
 
         stage('Verify Deployment') {
             steps {
-                script {
-                    sh '''
-                        echo "🔍 Verifying app status..."
-                        sleep 10
-                        curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
-                    '''
-                }
+                sh """
+                    echo "🔍 Verifying app status..."
+                    sleep 10
+                    curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
+                """
             }
         }
 
@@ -162,11 +165,11 @@ Build URL: ${env.BUILD_URL}"""
         failure {
             echo "🚨 Deployment failed for ${params.DEPLOY_ENV}. Rolling back..."
             dir("${TF_DIR}") {
-                sh '''
+                sh """
                     terraform init -input=false -reconfigure
                     terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous"
                     echo "✅ Rollback completed."
-                '''
+                """
             }
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
