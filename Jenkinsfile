@@ -5,7 +5,7 @@ pipeline {
         DOCKER_REPO     = "buvan654321/my-node-app"
         GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
         GIT_CREDENTIALS = "devops"
-        DOCKERHUB_CREDENTIALS = "docker-cred"
+        DOCKERHUB_CREDENTIALS = "docker_cred"
         TF_DIR          = "terraform"
         LOCK_FILE       = "/tmp/terraform.lock"
         MINIO_ENDPOINT  = "http://localhost:9000"
