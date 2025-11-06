@@ -27,31 +27,31 @@ pipeline {
     stages {
 
         stage('Checkout Branch') {
-    steps {
-        script {
-            // Map DEPLOY_ENV to actual branch names in repo
-            def branchMap = [
-                'dev'     : 'dev',
-                'staging' : 'release/release_1',
-                'uat'     : 'release/release_1',
-                'preprod' : 'release/release_1',
-                'prod'    : 'main'
-            ]
+            steps {
+                script {
+                    // Map DEPLOY_ENV to actual branch names in repo
+                    def branchMap = [
+                        'dev'     : 'dev',
+                        'staging' : 'release/release_1',
+                        'uat'     : 'release/release_1',
+                        'preprod' : 'release/release_1',
+                        'prod'    : 'main'
+                    ]
 
-            env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
-            echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+                    env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
+                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
-            checkout([
-                $class: 'GitSCM',
-                branches: [[name: "${env.GIT_BRANCH}"]],
-                userRemoteConfigs: [[
-                    url: "${GIT_URL}",
-                    credentialsId: "${GIT_CREDENTIALS}"
-                ]]
-            ])
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "${env.GIT_BRANCH}"]],
+                        userRemoteConfigs: [[
+                            url: "${GIT_URL}",
+                            credentialsId: "${GIT_CREDENTIALS}"
+                        ]]
+                    ])
+                }
+            }
         }
-    }
-}
 
         stage('Build & Run Docker Container') {
             steps {
@@ -62,11 +62,10 @@ pipeline {
                         echo "🐳 Building Docker image for ${params.DEPLOY_ENV}..."
                         docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
 
-                        echo "🚀 Running container for ${params.DEPLOY_ENV}..."
-                        # Stop existing container for environment if running
+                        echo "🚀 Stopping any existing container for ${params.DEPLOY_ENV}..."
                         docker rm -f ${params.DEPLOY_ENV} || true
 
-                        # Run new container for this environment
+                        echo "🚀 Running new container for ${params.DEPLOY_ENV}..."
                         docker run -d --name ${params.DEPLOY_ENV} -p ${getPort(params.DEPLOY_ENV)}:3000 ${DOCKER_REPO}:${IMAGE_TAG}
                     """
                 }
@@ -104,14 +103,7 @@ pipeline {
 
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🔍 Configuring MinIO..."
-                            mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
-                            mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1 || mc mb myminio/${MINIO_BUCKET}
-
-                            echo "🧹 Cleaning Terraform..."
-                            rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
-
-                            echo "🪣 Writing backend.tf..."
+                            echo "🪣 Writing backend.tf for MinIO..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -129,6 +121,19 @@ terraform {
 }
 EOF
 
+                            echo "📝 Writing variables.tf..."
+                            cat > variables.tf <<EOF
+variable "docker_image" {
+  description = "Docker image to deploy"
+  type        = string
+}
+
+variable "environment" {
+  description = "Deployment environment"
+  type        = string
+}
+EOF
+
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
@@ -136,9 +141,6 @@ EOF
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
 
                             echo "✅ Deployment successful for ${params.DEPLOY_ENV}"
-                            echo "🧾 Checking tfstate in MinIO..."
-                            mc ls myminio/${MINIO_BUCKET}/state/${params.DEPLOY_ENV}/${JOB_NAME}.tfstate || echo "⚠️ tfstate not found!"
-
                             rm -f "$LOCK_FILE"
                         """
                     }
