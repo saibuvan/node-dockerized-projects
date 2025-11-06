@@ -94,26 +94,24 @@ pipeline {
             }
         }
 
-        stage('Terraform Init & Apply (MinIO Backend)') {
+        stage('Terraform Init & Apply (Ensure MinIO Sync)') {
             steps {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
-                            echo "🔍 Ensuring MinIO bucket exists..."
+                            echo "🔍 Ensuring MinIO alias & bucket..."
                             mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 || true
-                            if ! mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1; then
-                                echo "🪣 Bucket ${MINIO_BUCKET} not found. Creating..."
-                                mc mb myminio/${MINIO_BUCKET}
-                            else
-                                echo "✅ MinIO bucket ${MINIO_BUCKET} exists."
-                            fi
+                            mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1 || mc mb myminio/${MINIO_BUCKET}
 
-                            echo "🔍 Checking and removing old container if exists..."
+                            echo "🔍 Removing old container if exists..."
                             docker ps -a --format '{{.Names}}' | grep -w "my-node-app-container" && \
                                 (echo "🧹 Removing old container..." && docker stop my-node-app-container && docker rm my-node-app-container) || \
                                 echo "✅ No existing container found."
 
-                            echo "🔍 Writing backend.tf for MinIO..."
+                            echo "🧹 Cleaning previous Terraform cache..."
+                            rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
+
+                            echo "🔧 Writing backend.tf..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -131,13 +129,16 @@ terraform {
 }
 EOF
 
-                            echo "🧩 Initializing Terraform with MinIO backend..."
-                            terraform init -reconfigure
+                            echo "🧩 Initializing Terraform backend (forcing MinIO connection)..."
+                            terraform init -input=false -reconfigure
 
-                            echo "🚀 Applying Terraform (IMAGE_TAG=${IMAGE_TAG})..."
+                            echo "🚀 Applying Terraform..."
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
 
-                            echo "✅ Terraform apply completed successfully."
+                            echo "✅ Terraform apply done."
+
+                            echo "🧾 Verifying tfstate upload to MinIO..."
+                            mc ls myminio/${MINIO_BUCKET}/state/ || echo "⚠️ tfstate file not found in MinIO!"
                         '''
                     }
                 }
@@ -148,14 +149,12 @@ EOF
             steps {
                 script {
                     sh """
-                        echo "🕓 Waiting for PostgreSQL to initialize..."
+                        echo "🕓 Waiting for PostgreSQL..."
                         sleep 10
-                        echo "🔍 Checking PostgreSQL status..."
-                        docker exec postgres_container pg_isready -U admin || echo "⚠️ Postgres not ready yet."
+                        docker exec postgres_container pg_isready -U admin || echo "⚠️ Postgres may not be ready."
 
-                        echo "⏳ Waiting for Node.js app to start..."
+                        echo "⏳ Waiting for Node app..."
                         sleep 10
-                        echo "🔍 Checking app health..."
                         curl -s http://localhost:${APP_PORT} || echo "⚠️ App not responding yet."
                     """
                 }
@@ -168,7 +167,6 @@ EOF
                     echo "🧹 Cleaning up old Docker images..."
                     docker image prune -f || true
                     docker rmi ${DOCKER_REPO}:${OLD_IMAGE_TAG} || true
-                    echo "✅ Old images cleaned up."
                 '''
             }
         }
@@ -179,30 +177,29 @@ EOF
             echo "✅ Deployment successful!"
             mail to: 'buvaneshganesan1@gmail.com',
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """App deployed successfully using Terraform with PostgreSQL & MinIO backend.
+                 body: """App deployed successfully.
 Terraform state stored in MinIO bucket: ${MINIO_BUCKET}
 URL: http://localhost:${APP_PORT}
 Build URL: ${env.BUILD_URL}"""
         }
 
         failure {
-            echo "🚨 Deployment failed! Rolling back to previous version..."
+            echo "🚨 Deployment failed — rolling back..."
             dir("${TF_DIR}") {
                 sh '''
-                    terraform init -reconfigure
+                    terraform init -input=false -reconfigure
                     terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${OLD_IMAGE_TAG}"
-                    echo "✅ Rollback completed."
                 '''
             }
 
             mail to: 'buvaneshganesan1@gmail.com',
-                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rollback Applied)",
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Build failed. Rollback applied.
 Build URL: ${env.BUILD_URL}"""
         }
 
         always {
-            echo "🧹 Cleaning up Terraform lock..."
+            echo "🧹 Cleaning up..."
             sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
