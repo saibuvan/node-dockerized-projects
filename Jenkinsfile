@@ -129,13 +129,29 @@ variable "environment" {
   description = "Deployment environment"
   type        = string
 }
+
+variable "container_name" {
+  description = "Docker container name"
+  type        = string
+  default     = "node_app_container"
+}
+
+variable "host_port" {
+  description = "Host port to expose"
+  type        = number
+  default     = 3000
+}
 EOF
 
                             echo "🧩 Initializing Terraform..."
                             terraform init -input=false -reconfigure
 
                             echo "🚀 Applying Terraform changes for ${params.DEPLOY_ENV}..."
-                            terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" -var="environment=${params.DEPLOY_ENV}"
+                            terraform apply -auto-approve \
+                                -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                                -var="environment=${params.DEPLOY_ENV}" \
+                                -var="container_name=node_app_container" \
+                                -var="host_port=3000"
 
                             echo "✅ Terraform deployment successful."
                             echo "🧾 Verifying tfstate upload to MinIO..."
@@ -181,7 +197,9 @@ Build URL: ${env.BUILD_URL}"""
             dir("${TF_DIR}") {
                 sh """
                     terraform init -input=false -reconfigure
-                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous"
+                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous" \
+                                              -var="container_name=node_app_container" \
+                                              -var="host_port=3000"
                     echo "✅ Rollback completed."
                 """
             }
