@@ -94,32 +94,32 @@ pipeline {
             }
         }
 
-        stage('Terraform Init & Apply (Clean Redeploy)') {
+        stage('Terraform Init & Apply (with MinIO backend)') {
             steps {
                 dir("${TF_DIR}") {
                     script {
                         sh '''
+                            echo "🔍 Ensuring MinIO bucket exists..."
+                            if ! mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4; then
+                                echo "⚠️ Could not configure mc alias. Installing mc..."
+                                wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
+                                chmod +x /usr/local/bin/mc
+                                mc alias set myminio ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4
+                            fi
+
+                            if ! mc ls myminio/${MINIO_BUCKET} >/dev/null 2>&1; then
+                                echo "🪣 Creating missing MinIO bucket: ${MINIO_BUCKET}"
+                                mc mb myminio/${MINIO_BUCKET} || true
+                            else
+                                echo "✅ MinIO bucket ${MINIO_BUCKET} exists."
+                            fi
+
                             echo "🔍 Checking and removing old container if exists..."
                             docker ps -a --format '{{.Names}}' | grep -w "my-node-app-container" && \
                                 (echo "🧹 Removing old container..." && docker stop my-node-app-container && docker rm my-node-app-container) || \
                                 echo "✅ No existing container found."
 
-                            echo "🔍 Checking for existing Terraform lock..."
-                            if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
-                                if [ $FILE_AGE -gt 600 ]; then
-                                    echo "🧹 Removing stale lock file..."
-                                    rm -f "$LOCK_FILE" || echo "⚠️ Could not remove lock file"
-                                else
-                                    echo "🚫 Lock exists. Another deployment is running!"
-                                    exit 1
-                                fi
-                            fi
-
-                            echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
-                            chmod 664 "$LOCK_FILE"
-
-                            echo "🪣 Writing backend.tf..."
+                            echo "🔍 Writing backend.tf for MinIO..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -137,14 +137,13 @@ terraform {
 }
 EOF
 
-                            echo "🧩 Initializing Terraform..."
-                            terraform init -reconfigure
+                            echo "🧩 Initializing Terraform with MinIO backend..."
+                            terraform init -migrate-state -reconfigure
 
                             echo "🚀 Applying Terraform (IMAGE_TAG=${IMAGE_TAG})..."
                             terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}"
 
-                            echo "✅ Terraform apply completed successfully."
-                            rm -f "$LOCK_FILE"
+                            echo "✅ Terraform apply completed successfully and state uploaded to MinIO."
                         '''
                     }
                 }
@@ -206,11 +205,6 @@ Build URL: ${env.BUILD_URL}"""
                  subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (Rollback Applied)",
                  body: """Build failed. Rollback applied.
 Build URL: ${env.BUILD_URL}"""
-        }
-
-        always {
-            echo "🧹 Cleaning up Terraform lock..."
-            sh 'rm -f "${LOCK_FILE}" || true'
         }
     }
 }
