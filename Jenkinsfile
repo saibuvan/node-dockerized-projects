@@ -35,17 +35,24 @@ pipeline {
         stage('Build & Push Docker Image') {
             steps {
                 script {
+                    // Create unique Docker image tag
                     IMAGE_TAG = "${params.DEPLOY_ENV}-${BUILD_NUMBER}"
-                    echo "🐳 Building Docker image: ${DOCKER_REPO}:${IMAGE_TAG}"
-                    sh "docker build -t ${DOCKER_REPO}:${IMAGE_TAG} ."
+                    FULL_IMAGE_NAME = "${DOCKER_REPO}:${IMAGE_TAG}"
 
-                    // Use Jenkins credentials safely
+                    echo "🐳 Building Docker image: ${FULL_IMAGE_NAME}"
+
+                    // Build Docker image
+                    sh "docker build -t ${FULL_IMAGE_NAME} ."
+
+                    // Login & push using Jenkins stored credentials
                     withCredentials([usernamePassword(credentialsId: 'docker-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh '''
+                        echo "🔑 Logging into Docker Hub..."
+                        sh """
                             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                            docker push ${DOCKER_REPO}:${IMAGE_TAG}
+                            echo "📤 Pushing Docker image: ${FULL_IMAGE_NAME}"
+                            docker push ${FULL_IMAGE_NAME}
                             docker logout
-                        '''
+                        """
                     }
                 }
             }
@@ -135,7 +142,7 @@ EOF
 
                             echo "🚀 Applying Terraform for ${params.DEPLOY_ENV}..."
                             terraform apply -auto-approve \
-                                -var="docker_image=${DOCKER_REPO}:${IMAGE_TAG}" \
+                                -var="docker_image=${FULL_IMAGE_NAME}" \
                                 -var="environment=${params.DEPLOY_ENV}" \
                                 -var="container_name=\$CONTAINER_NAME" \
                                 -var="host_port=\$HOST_PORT"
