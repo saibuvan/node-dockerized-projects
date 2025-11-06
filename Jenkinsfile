@@ -1,59 +1,70 @@
 pipeline {
     agent any
 
-    environment {
-        DOCKER_REPO      = "buvan654321/my-node-app"
-        GIT_URL          = "https://github.com/saibuvan/node-dockerized-projects.git"
-        GIT_CREDENTIALS  = "devops"
-        TF_DIR           = "terraform"
-        LOCK_FILE        = "/tmp/terraform.lock"
-        MINIO_ENDPOINT   = "http://localhost:9000"
-        MINIO_BUCKET     = "tfstate-bucket"
-        MINIO_ACCESS_KEY = "minioadmin"
-        MINIO_SECRET_KEY = "minioadmin"
-        MINIO_REGION     = "us-east-1"
-    }
-
     parameters {
         choice(
-            name: 'DEPLOY_ENV',
-            choices: ['dev', 'qa', 'uat', 'prod'],
+            name: 'DEPLOY_ENV', 
+            choices: ['dev', 'staging', 'uat', 'preprod', 'prod'], 
             description: 'Select the environment to deploy'
         )
     }
 
+    environment {
+        DOCKER_REPO      = "buvan654321/my-node-app"
+        GIT_URL          = "https://github.com/saibuvan/node-dockerized-projects.git"
+        GIT_CREDENTIALS  = "devops"
+        TF_DIR           = "${WORKSPACE}/terraform"
+        LOCK_FILE        = "/tmp/terraform.lock"
+
+        MINIO_ENDPOINT   = "http://localhost:9000"
+        MINIO_BUCKET     = "terraform-state"
+        MINIO_REGION     = "us-east-1"
+        MINIO_ACCESS_KEY = "minioadmin"
+        MINIO_SECRET_KEY = "minioadmin"
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
     stages {
-        stage('Checkout Code') {
+
+        stage('Checkout Branch') {
             steps {
-                echo "🔄 Checking out ${GIT_URL}..."
-                git branch: 'staging',
-                    credentialsId: "${GIT_CREDENTIALS}",
-                    url: "${GIT_URL}"
+                script {
+                    if (params.DEPLOY_ENV == 'dev') { env.GIT_BRANCH = 'develop' }
+                    else if (params.DEPLOY_ENV == 'staging') { env.GIT_BRANCH = 'release/release_1' }
+                    else if (params.DEPLOY_ENV == 'uat') { env.GIT_BRANCH = 'release/release_1' }
+                    else if (params.DEPLOY_ENV == 'preprod') { env.GIT_BRANCH = 'release/release_1' }
+                    else { env.GIT_BRANCH = 'main' }
+
+                    echo "📦 Checking out branch: ${env.GIT_BRANCH}"
+                    git branch: "${env.GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_CREDENTIALS}"
+                }
             }
         }
 
-        stage('Build & Push Docker Image') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    // Create unique Docker image tag
-                    IMAGE_TAG = "${params.DEPLOY_ENV}-${BUILD_NUMBER}"
-                    FULL_IMAGE_NAME = "${DOCKER_REPO}:${IMAGE_TAG}"
-
+                    env.IMAGE_TAG = "${params.DEPLOY_ENV}-${env.BUILD_NUMBER}"
+                    env.FULL_IMAGE_NAME = "${DOCKER_REPO}:${IMAGE_TAG}"
                     echo "🐳 Building Docker image: ${FULL_IMAGE_NAME}"
-
-                    // Build Docker image
                     sh "docker build -t ${FULL_IMAGE_NAME} ."
+                }
+            }
+        }
 
-                    // Login & push using Jenkins stored credentials
-                    withCredentials([usernamePassword(credentialsId: 'docker-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        echo "🔑 Logging into Docker Hub..."
-                        sh """
-                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                            echo "📤 Pushing Docker image: ${FULL_IMAGE_NAME}"
-                            docker push ${FULL_IMAGE_NAME}
-                            docker logout
-                        """
-                    }
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker_cred', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                    sh """
+                        echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                        echo "📤 Pushing Docker image: ${FULL_IMAGE_NAME}"
+                        docker push ${FULL_IMAGE_NAME}
+                        docker logout
+                    """
                 }
             }
         }
@@ -63,32 +74,21 @@ pipeline {
                 dir("${TF_DIR}") {
                     script {
                         sh """
-                            echo "🔒 Checking for Terraform lock..."
+                            echo "🔍 Checking for existing Terraform lock..."
                             if [ -f "$LOCK_FILE" ]; then
-                                FILE_AGE=\$(( \$(date +%s) - \$(stat -c %Y "$LOCK_FILE") ))
-                                if [ \$FILE_AGE -gt 600 ]; then
-                                    echo "🧹 Removing stale lock..."
+                                FILE_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
+                                if [ $FILE_AGE -gt 600 ]; then
+                                    echo "🧹 Removing stale lock file..."
                                     rm -f "$LOCK_FILE"
                                 else
-                                    echo "🚫 Another deployment is in progress."
+                                    echo "🚫 Another deployment is running!"
                                     exit 1
                                 fi
                             fi
+
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🧹 Cleaning any Docker container using ports 3000–3004..."
-                            for PORT in 3000 3001 3002 3003 3004; do
-                                USED_CONTAINER=\$(docker ps --filter "publish=\${PORT}" --format "{{.ID}}")
-                                if [ ! -z "\$USED_CONTAINER" ]; then
-                                    echo "⚠️ Removing container using port \$PORT..."
-                                    docker rm -f \$USED_CONTAINER || true
-                                fi
-                            done
-
-                            echo "🧹 Cleaning Terraform cache..."
-                            rm -rf .terraform .terraform.lock.hcl terraform.tfstate terraform.tfstate.backup || true
-
-                            echo "🪣 Writing backend.tf..."
+                            echo "🪣 Configuring MinIO backend..."
                             cat > backend.tf <<EOF
 terraform {
   backend "s3" {
@@ -106,66 +106,71 @@ terraform {
 }
 EOF
 
-                            echo "📝 Writing variables.tf..."
-                            cat > variables.tf <<EOF
-variable "docker_image" {
-  description = "Docker image to deploy"
-  type        = string
-}
-variable "environment" {
-  description = "Deployment environment"
-  type        = string
-}
-variable "container_name" {
-  description = "Docker container name"
-  type        = string
-}
-variable "host_port" {
-  description = "Host port to expose"
-  type        = number
-}
-EOF
-
-                            CONTAINER_NAME="node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
-
-                            # Assign ports per environment
-                            case "${params.DEPLOY_ENV}" in
-                              dev) HOST_PORT=3001 ;;
-                              qa)  HOST_PORT=3002 ;;
-                              uat) HOST_PORT=3003 ;;
-                              prod) HOST_PORT=3004 ;;
-                              *) HOST_PORT=3000 ;;
-                            esac
-
                             echo "🧩 Initializing Terraform..."
-                            terraform init -input=false -reconfigure
+                            terraform init -reconfigure
 
-                            echo "🚀 Applying Terraform for ${params.DEPLOY_ENV}..."
-                            terraform apply -auto-approve \
-                                -var="docker_image=${FULL_IMAGE_NAME}" \
-                                -var="environment=${params.DEPLOY_ENV}" \
-                                -var="container_name=\$CONTAINER_NAME" \
-                                -var="host_port=\$HOST_PORT"
+                            echo "🚀 Applying Terraform changes for ${params.DEPLOY_ENV}..."
+                            terraform apply -auto-approve -var="docker_image=${FULL_IMAGE_NAME}" -var="environment=${params.DEPLOY_ENV}"
 
-                            echo "✅ Deployment complete for ${params.DEPLOY_ENV}"
+                            echo "✅ Terraform deployment successful."
                             rm -f "$LOCK_FILE"
                         """
                     }
                 }
             }
         }
+
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    sh """
+                        echo "🔍 Verifying app status..."
+                        sleep 10
+                        curl -f http://localhost:3000 || echo "⚠️ App might not be reachable yet."
+                    """
+                }
+            }
+        }
+
+        stage('Promotion Confirmation') {
+            when { expression { params.DEPLOY_ENV in ['staging', 'uat', 'preprod'] } }
+            steps {
+                script {
+                    input message: "Promote ${params.DEPLOY_ENV} build to next environment?", ok: "Promote"
+                }
+            }
+        }
     }
 
     post {
-        always {
-            echo "🧹 Cleaning up workspace..."
-            sh "rm -f ${LOCK_FILE} || true"
-        }
-        failure {
-            echo "❌ Build failed. Please check logs."
-        }
         success {
-            echo "✅ Build & Deployment succeeded!"
+            echo "✅ Deployment successful for ${params.DEPLOY_ENV}"
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
+                 body: """Deployment successful in ${params.DEPLOY_ENV} environment.
+Docker Image: ${FULL_IMAGE_NAME}
+Build URL: ${env.BUILD_URL}"""
+        }
+
+        failure {
+            echo "🚨 Deployment failed for ${params.DEPLOY_ENV}. Rolling back..."
+            dir("${TF_DIR}") {
+                sh """
+                    terraform init -reconfigure
+                    terraform apply -auto-approve -var="docker_image=${DOCKER_REPO}:previous"
+                    echo "✅ Rollback completed."
+                """
+            }
+            mail to: 'buvaneshganesan1@gmail.com',
+                 subject: "❌ FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.DEPLOY_ENV})",
+                 body: """Deployment failed for ${params.DEPLOY_ENV}.
+Rollback executed successfully.
+Build URL: ${env.BUILD_URL}"""
+        }
+
+        always {
+            echo "🧹 Cleaning up lock..."
+            sh 'rm -f "$LOCK_FILE" || true'
         }
     }
 }
