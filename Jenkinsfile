@@ -2,17 +2,16 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_REPO     = "buvan654321/my-node-app"
-        GIT_URL         = "https://github.com/saibuvan/node-dockerized-projects.git"
-        GIT_CREDENTIALS = "devops"
-        DOCKERHUB_CREDENTIALS = "docker-credentials"
-        TF_DIR          = "terraform"
-        LOCK_FILE       = "/tmp/terraform.lock"
-        MINIO_ENDPOINT  = "http://localhost:9000"
-        MINIO_BUCKET    = "tfstate-bucket"
+        DOCKER_REPO      = "buvan654321/my-node-app"
+        GIT_URL          = "https://github.com/saibuvan/node-dockerized-projects.git"
+        GIT_CREDENTIALS  = "devops"
+        TF_DIR           = "terraform"
+        LOCK_FILE        = "/tmp/terraform.lock"
+        MINIO_ENDPOINT   = "http://localhost:9000"
+        MINIO_BUCKET     = "tfstate-bucket"
         MINIO_ACCESS_KEY = "minioadmin"
         MINIO_SECRET_KEY = "minioadmin"
-        MINIO_REGION    = "us-east-1"
+        MINIO_REGION     = "us-east-1"
     }
 
     parameters {
@@ -37,14 +36,17 @@ pipeline {
             steps {
                 script {
                     IMAGE_TAG = "${params.DEPLOY_ENV}-${BUILD_NUMBER}"
-                    OLD_IMAGE_TAG = sh(script: "docker images --format '{{.Tag}}' ${DOCKER_REPO} | tail -n 1", returnStdout: true).trim()
-
                     echo "🐳 Building Docker image: ${DOCKER_REPO}:${IMAGE_TAG}"
-                    sh """
-                        docker build -t ${DOCKER_REPO}:${IMAGE_TAG} .
-                        echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-                        docker push ${DOCKER_REPO}:${IMAGE_TAG}
-                    """
+                    sh "docker build -t ${DOCKER_REPO}:${IMAGE_TAG} ."
+
+                    // Use Jenkins credentials safely
+                    withCredentials([usernamePassword(credentialsId: 'docker-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                            docker push ${DOCKER_REPO}:${IMAGE_TAG}
+                            docker logout
+                        '''
+                    }
                 }
             }
         }
@@ -67,7 +69,7 @@ pipeline {
                             fi
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
 
-                            echo "🧹 Cleaning any Docker container using port 3000–3004..."
+                            echo "🧹 Cleaning any Docker container using ports 3000–3004..."
                             for PORT in 3000 3001 3002 3003 3004; do
                                 USED_CONTAINER=\$(docker ps --filter "publish=\${PORT}" --format "{{.ID}}")
                                 if [ ! -z "\$USED_CONTAINER" ]; then
