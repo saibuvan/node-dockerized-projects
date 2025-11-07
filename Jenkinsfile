@@ -42,7 +42,6 @@ pipeline {
                         'preprod' : 'release/release_1',
                         'prod'    : 'main'
                     ]
-
                     env.GIT_BRANCH = branchMap[params.DEPLOY_ENV]
                     echo "📦 Checking out branch: ${env.GIT_BRANCH}"
 
@@ -102,9 +101,9 @@ pipeline {
             steps {
                 dir("${TF_DIR}") {
                     script {
-                        // Set container name and host port dynamically
-                        def CONTAINER_NAME = "node_app_container_${params.DEPLOY_ENV}_${BUILD_NUMBER}"
+                        def CONTAINER_NAME = "node_app_container_${params.DEPLOY_ENV}"
                         def HOST_PORT
+
                         switch(params.DEPLOY_ENV) {
                             case 'dev': HOST_PORT = 3100; break
                             case 'staging': HOST_PORT = 3200; break
@@ -126,8 +125,20 @@ pipeline {
                                     exit 1
                                 fi
                             fi
-
                             echo "LOCKED by Jenkins build #${BUILD_NUMBER}" > "$LOCK_FILE"
+
+                            echo "🧹 Cleaning up any existing container or port on ${HOST_PORT}..."
+                            EXISTING_CONTAINER=\$(docker ps -a --filter "name=${CONTAINER_NAME}" --format "{{.ID}}")
+                            if [ ! -z "\$EXISTING_CONTAINER" ]; then
+                                echo "🛑 Removing existing container \$EXISTING_CONTAINER"
+                                docker rm -f "\$EXISTING_CONTAINER" || true
+                            fi
+
+                            USED_PORT=\$(docker ps --format "{{.Ports}}" | grep -w "${HOST_PORT}" || true)
+                            if [ ! -z "\$USED_PORT" ]; then
+                                echo "⚠️ Port ${HOST_PORT} is still in use, freeing it up..."
+                                docker ps --filter "publish=${HOST_PORT}" -q | xargs -r docker rm -f || true
+                            fi
 
                             echo "🪣 Writing backend.tf..."
                             cat > backend.tf <<EOF
@@ -149,25 +160,10 @@ EOF
 
                             echo "📝 Writing variables.tf..."
                             cat > variables.tf <<EOF
-variable "docker_image" {
-  description = "Docker image to deploy"
-  type        = string
-}
-
-variable "environment" {
-  description = "Deployment environment"
-  type        = string
-}
-
-variable "container_name" {
-  description = "Docker container name"
-  type        = string
-}
-
-variable "host_port" {
-  description = "Host port to expose"
-  type        = number
-}
+variable "docker_image" { type = string }
+variable "environment" { type = string }
+variable "container_name" { type = string }
+variable "host_port" { type = number }
 EOF
 
                             echo "🧩 Initializing Terraform..."
@@ -199,7 +195,6 @@ EOF
                         prod: 3500
                     ]
                     def PORT = portMap[params.DEPLOY_ENV] ?: 3000
-
                     sh """
                         echo "🔍 Verifying app in container ${params.DEPLOY_ENV}..."
                         sleep 10
